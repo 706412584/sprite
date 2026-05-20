@@ -68,27 +68,9 @@ public static partial class LayoutEditorSpark2Runtime
             return string.Empty;
         }
 
-        // 处理相对路径，转换为引擎资源路径
-        // 输入: "./assets/game2d/sheets/mossy_hills.png"
-        // 输出: "image/game2d/sheets/mossy_hills.png" (假设文件在 ui/image/ 下)
-        
-        string cleanPath = relativePath;
-        
-        // 移除 "./" 前缀
-        if (cleanPath.StartsWith("./"))
-        {
-            cleanPath = cleanPath.Substring(2);
-        }
-        
-        // 将 "assets/" 映射到 "image/"
-        // 因为引擎要求: ui/image/xxx.png -> 代码中使用 "image/xxx.png"
-        if (cleanPath.StartsWith("assets/"))
-        {
-            cleanPath = "image/" + cleanPath.Substring(7); // 移除 "assets/" 加上 "image/"
-        }
-        
-        Game.Logger.LogInformation($"[LayoutEditor] Asset path: {relativePath} -> {cleanPath}");
-        return cleanPath;
+        // 路径已经是 image/xxx 格式，直接返回
+        // 只需要处理路径分隔符
+        return relativePath.Replace('/', Path.DirectorySeparatorChar);
     }
 
     public static Panel CreateImageCard(
