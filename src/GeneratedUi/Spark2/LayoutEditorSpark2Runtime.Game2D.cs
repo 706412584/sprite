@@ -345,7 +345,7 @@ public static partial class LayoutEditorSpark2Runtime
         // 加载背景图片
         try
         {
-            ctx.BackgroundImage = new GameCore.ResourceType.Image(Asset("./assets/game2d/sheets/mossy_hills.png"));
+            ctx.BackgroundImage = new GameCore.ResourceType.Image("image/game2d/sheets/mossy_hills.png");
             Game.Logger.LogInformation("ConfigureGameScene2D: Background image loaded");
         }
         catch (Exception ex)
@@ -751,7 +751,7 @@ public static partial class LayoutEditorSpark2Runtime
 
         // Load character sprite (wizard_idle.png by default)
         GameCore.ResourceType.Image? sheet = null;
-        string idleAsset = Asset("./assets/game2d/sheets/wizard_idle.png");
+        string idleAsset = "image/game2d/sheets/wizard_idle.png";
         try 
         { 
             sheet = new GameCore.ResourceType.Image(idleAsset);
