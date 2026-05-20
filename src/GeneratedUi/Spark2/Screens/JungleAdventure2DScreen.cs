@@ -39,6 +39,8 @@ public static class JungleAdventure2DScreen
             BoundsWidth = 960f,
             BoundsHeight = 540f,
             PixelsPerMeter = 64f,
+            BackgroundImage = LayoutEditorSpark2Runtime.Asset("image/game2d/sheets/mossy_hills.png"),
+            EnableKeyboardInput = true,
         });
         var gradientblock_mwjzd5fu = LayoutEditorSpark2Runtime.Register(nodes, "gradientblock_mwjzd5fu", new Canvas());
         gradientblock_mwjzd5fu.Parent = gamescene2d_ztj183re;
@@ -438,6 +440,33 @@ public static class JungleAdventure2DScreen
             GravityScale = 1f,
             CurrentAnimation = "idle",
             BodyType = "Dynamic",
+            IdleAnimation = new CharacterAnimationConfig
+            {
+                ImageAsset = LayoutEditorSpark2Runtime.Asset("image/game2d/sheets/wizard_idle.png"),
+                FrameWidth = 512,
+                FrameHeight = 512,
+                FrameCount = 20,
+                FramesPerRow = 10,
+                Fps = 10,
+            },
+            WalkAnimation = new CharacterAnimationConfig
+            {
+                ImageAsset = LayoutEditorSpark2Runtime.Asset("image/game2d/sheets/wizard_walk.png"),
+                FrameWidth = 512,
+                FrameHeight = 512,
+                FrameCount = 20,
+                FramesPerRow = 10,
+                Fps = 14,
+            },
+            JumpAnimation = new CharacterAnimationConfig
+            {
+                ImageAsset = LayoutEditorSpark2Runtime.Asset("image/game2d/sheets/wizard_jump.png"),
+                FrameWidth = 512,
+                FrameHeight = 512,
+                FrameCount = 8,
+                FramesPerRow = 8,
+                Fps = 10,
+            },
         });
         var spriteanimation_wuq4e93w = LayoutEditorSpark2Runtime.Register(nodes, "spriteanimation_wuq4e93w", new Panel());
         spriteanimation_wuq4e93w.Parent = gamescene2d_ztj183re;
@@ -530,7 +559,7 @@ public static class JungleAdventure2DScreen
     {
         return new string[]
         {
-            "GameScene2D gamescene2d_ztj183re: 星火2.0 2D场景架构 = CanvasAnimated(渲染) + 简单AABB物理(Canvas-only模式，不使用SceneGraph避免崩溃)。设计分辨率 960x540，重力=900。",
+            "GameScene2D gamescene2d_ztj183re: 星火2.0 2D场景架构 = CanvasAnimated(渲染) + 简单AABB物理(Canvas-only模式，不使用SceneGraph避免崩溃)。设计分辨率 960x540，重力=900，背景图=image/game2d/sheets/mossy_hills.png，键盘输入=true。",
             "GradientBlock gradientblock_mwjzd5fu is exported as Canvas shell. Rebuild draw logic with GameUI.Canvas APIs.",
             "Node image_i0rdvtg5 binds image resource image/game2d/sheets/mossy_hills.png; Spark2 export now writes it to the control Image property.",
             "SpriteAnimation spriteanimation_ys7k64aa: 星火2.0使用 AnimatedImageSource + CanvasAnimated 绘制帧动画。需在数据编辑器中创建 GameDataAnimatedImage 资源（Image=image/game2d/sheets/plant1.png, FramesPerRow=10, 帧数=90）。Canvas.DrawAnimatedImage(anim, x, y) 进行渲染。",

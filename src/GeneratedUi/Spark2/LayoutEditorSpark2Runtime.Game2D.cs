@@ -22,6 +22,12 @@ public sealed class GameScene2DConfig
     public float BoundsWidth { get; set; } = 800f;
     public float BoundsHeight { get; set; } = 600f;
     public float PixelsPerMeter { get; set; } = 64f;
+    
+    // 背景图片路径 (格式: "image/xxx.png")
+    public string BackgroundImage { get; set; } = "";
+    
+    // 是否启用键盘输入 (WASD + 方向键 + 空格)
+    public bool EnableKeyboardInput { get; set; } = true;
 }
 
 public sealed class SpriteAnimationConfig
@@ -44,6 +50,22 @@ public sealed class CharacterController2DConfig
     public float GravityScale { get; set; } = 1f;
     public string CurrentAnimation { get; set; } = "idle";
     public string BodyType { get; set; } = "Dynamic";
+    
+    // 动画配置 (idle/walk/jump)
+    public CharacterAnimationConfig? IdleAnimation { get; set; }
+    public CharacterAnimationConfig? WalkAnimation { get; set; }
+    public CharacterAnimationConfig? JumpAnimation { get; set; }
+}
+
+/// <summary>角色动画配置</summary>
+public sealed class CharacterAnimationConfig
+{
+    public string ImageAsset { get; set; } = "";
+    public int FrameWidth { get; set; } = 512;
+    public int FrameHeight { get; set; } = 512;
+    public int FrameCount { get; set; } = 20;
+    public int FramesPerRow { get; set; } = 10;
+    public int Fps { get; set; } = 10;
 }
 
 public sealed class Collider2DConfig
@@ -342,82 +364,88 @@ public static partial class LayoutEditorSpark2Runtime
         float designWidth = config.BoundsWidth;
         float designHeight = config.BoundsHeight;
 
-        // 加载背景图片
-        try
+        // 加载背景图片 (从配置读取)
+        if (!string.IsNullOrWhiteSpace(config.BackgroundImage))
         {
-            ctx.BackgroundImage = new GameCore.ResourceType.Image("image/game2d/sheets/mossy_hills.png");
-            Game.Logger.LogInformation("ConfigureGameScene2D: Background image loaded");
-        }
-        catch (Exception ex)
-        {
-            Game.Logger.LogWarning($"ConfigureGameScene2D: Failed to load background image: {ex.Message}");
+            try
+            {
+                ctx.BackgroundImage = new GameCore.ResourceType.Image(config.BackgroundImage);
+                Game.Logger.LogInformation($"ConfigureGameScene2D: Background image loaded: {config.BackgroundImage}");
+            }
+            catch (Exception ex)
+            {
+                Game.Logger.LogWarning($"ConfigureGameScene2D: Failed to load background image '{config.BackgroundImage}': {ex.Message}");
+            }
         }
 
         // 绑定键盘输入 (WASD + 方向键 + 空格) 使用全局事件触发器
-        ctx.KeyDownTrigger = new Trigger<EventGameKeyDown>((s, d) =>
+        if (config.EnableKeyboardInput)
         {
-            if (_activeScene == null) return Task.FromResult(true);
-            Game.Logger.LogInformation($"KeyDown: {d.Key}");
-            switch (d.Key)
+            ctx.KeyDownTrigger = new Trigger<EventGameKeyDown>((s, d) =>
             {
-                case VirtualKey.A:
-                case VirtualKey.Left:
-                    _activeScene.KeyLeft = true;
-                    break;
-                case VirtualKey.D:
-                case VirtualKey.Right:
-                    _activeScene.KeyRight = true;
-                    break;
-                case VirtualKey.W:
-                case VirtualKey.Up:
-                    _activeScene.KeyUp = true;
-                    if (_activeScene.Character != null)
-                        _activeScene.Character.JumpRequested = true;
-                    break;
-                case VirtualKey.S:
-                case VirtualKey.Down:
-                    _activeScene.KeyDown = true;
-                    break;
-                case VirtualKey.Space:
-                    _activeScene.KeyJump = true;
-                    if (_activeScene.Character != null)
-                        _activeScene.Character.JumpRequested = true;
-                    break;
-            }
-            UpdateKeyboardInput();
-            return Task.FromResult(true);
-        });
-        ctx.KeyDownTrigger.Register(Game.Instance);
+                if (_activeScene == null) return Task.FromResult(true);
+                Game.Logger.LogInformation($"KeyDown: {d.Key}");
+                switch (d.Key)
+                {
+                    case VirtualKey.A:
+                    case VirtualKey.Left:
+                        _activeScene.KeyLeft = true;
+                        break;
+                    case VirtualKey.D:
+                    case VirtualKey.Right:
+                        _activeScene.KeyRight = true;
+                        break;
+                    case VirtualKey.W:
+                    case VirtualKey.Up:
+                        _activeScene.KeyUp = true;
+                        if (_activeScene.Character != null)
+                            _activeScene.Character.JumpRequested = true;
+                        break;
+                    case VirtualKey.S:
+                    case VirtualKey.Down:
+                        _activeScene.KeyDown = true;
+                        break;
+                    case VirtualKey.Space:
+                        _activeScene.KeyJump = true;
+                        if (_activeScene.Character != null)
+                            _activeScene.Character.JumpRequested = true;
+                        break;
+                }
+                UpdateKeyboardInput();
+                return Task.FromResult(true);
+            });
+            ctx.KeyDownTrigger.Register(Game.Instance);
 
-        ctx.KeyUpTrigger = new Trigger<EventGameKeyUp>((s, d) =>
-        {
-            if (_activeScene == null) return Task.FromResult(true);
-            switch (d.Key)
+            ctx.KeyUpTrigger = new Trigger<EventGameKeyUp>((s, d) =>
             {
-                case VirtualKey.A:
-                case VirtualKey.Left:
-                    _activeScene.KeyLeft = false;
-                    break;
-                case VirtualKey.D:
-                case VirtualKey.Right:
-                    _activeScene.KeyRight = false;
-                    break;
-                case VirtualKey.W:
-                case VirtualKey.Up:
-                    _activeScene.KeyUp = false;
-                    break;
-                case VirtualKey.S:
-                case VirtualKey.Down:
-                    _activeScene.KeyDown = false;
-                    break;
-                case VirtualKey.Space:
-                    _activeScene.KeyJump = false;
-                    break;
-            }
-            UpdateKeyboardInput();
-            return Task.FromResult(true);
-        });
-        ctx.KeyUpTrigger.Register(Game.Instance);
+                if (_activeScene == null) return Task.FromResult(true);
+                switch (d.Key)
+                {
+                    case VirtualKey.A:
+                    case VirtualKey.Left:
+                        _activeScene.KeyLeft = false;
+                        break;
+                    case VirtualKey.D:
+                    case VirtualKey.Right:
+                        _activeScene.KeyRight = false;
+                        break;
+                    case VirtualKey.W:
+                    case VirtualKey.Up:
+                        _activeScene.KeyUp = false;
+                        break;
+                    case VirtualKey.S:
+                    case VirtualKey.Down:
+                        _activeScene.KeyDown = false;
+                        break;
+                    case VirtualKey.Space:
+                        _activeScene.KeyJump = false;
+                        break;
+                }
+                UpdateKeyboardInput();
+                return Task.FromResult(true);
+            });
+            ctx.KeyUpTrigger.Register(Game.Instance);
+        }
 
         // Set up render loop
         canvas.OnRender += (sender, e) =>
@@ -749,31 +777,44 @@ public static partial class LayoutEditorSpark2Runtime
             GravityScale = config.GravityScale,
         };
 
-        // Load character sprite (wizard_idle.png by default)
+        // 从配置读取动画信息，优先使用 IdleAnimation
+        var animConfig = config.IdleAnimation ?? new CharacterAnimationConfig
+        {
+            ImageAsset = "image/game2d/sheets/wizard_idle.png",
+            FrameWidth = 512,
+            FrameHeight = 512,
+            FrameCount = 20,
+            FramesPerRow = 10,
+            Fps = 10,
+        };
+
+        // Load character sprite
         GameCore.ResourceType.Image? sheet = null;
-        string idleAsset = "image/game2d/sheets/wizard_idle.png";
-        try 
-        { 
-            sheet = new GameCore.ResourceType.Image(idleAsset);
-            Game.Logger.LogInformation($"ConfigureCharacterController2D: Loaded sprite {idleAsset}");
-        }
-        catch (Exception ex) 
-        { 
-            Game.Logger.LogWarning($"ConfigureCharacterController2D: Failed to load sprite: {ex.Message}");
+        if (!string.IsNullOrWhiteSpace(animConfig.ImageAsset))
+        {
+            try 
+            { 
+                sheet = new GameCore.ResourceType.Image(animConfig.ImageAsset);
+                Game.Logger.LogInformation($"ConfigureCharacterController2D: Loaded sprite {animConfig.ImageAsset}");
+            }
+            catch (Exception ex) 
+            { 
+                Game.Logger.LogWarning($"ConfigureCharacterController2D: Failed to load sprite '{animConfig.ImageAsset}': {ex.Message}");
+            }
         }
 
-        // Create a sprite renderer for the character with proper animation config
+        // Create a sprite renderer for the character with animation config from export
         var sprite = new SpriteRenderer2D
         {
             SpriteSheet = sheet,
             Config = new SpriteAnimationConfig 
             { 
-                ImageAsset = idleAsset,
-                FrameWidth = 512,
-                FrameHeight = 512,
-                FrameCount = 20,
-                FramesPerRow = 10,
-                Fps = 10,
+                ImageAsset = animConfig.ImageAsset,
+                FrameWidth = animConfig.FrameWidth,
+                FrameHeight = animConfig.FrameHeight,
+                FrameCount = animConfig.FrameCount,
+                FramesPerRow = animConfig.FramesPerRow,
+                Fps = animConfig.Fps,
                 Loop = true,
                 Autoplay = true,
             },
