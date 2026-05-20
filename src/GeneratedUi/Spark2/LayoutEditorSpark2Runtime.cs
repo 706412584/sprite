@@ -37,9 +37,6 @@ public sealed class LayoutScreenResult
 
 public static partial class LayoutEditorSpark2Runtime
 {
-    public static string AssetRoot { get; set; } =
-        @"D:\User\70641\Documents\SCE Projects\game_entry_0\tools\layout-editor\mcp-runtime-export-spark2\丛林冒险\默认项目";
-
     public static T Register<T>(IDictionary<string, Control> nodes, string id, T control) where T : Control
     {
         nodes[id] = control;
@@ -63,23 +60,10 @@ public static partial class LayoutEditorSpark2Runtime
 
     public static string Asset(string relativePath)
     {
-        if (string.IsNullOrWhiteSpace(relativePath))
-        {
-            return string.Empty;
-        }
-
-        // 路径已经是 image/xxx 格式，直接返回
-        // 只需要处理路径分隔符
         return relativePath.Replace('/', Path.DirectorySeparatorChar);
     }
 
-    public static Panel CreateImageCard(
-        string debugName,
-        string imagePath,
-        float width,
-        float height,
-        Color backgroundColor,
-        float cornerRadius = 8f)
+    public static Panel CreateImageCard(string debugName, string imagePath, float width, float height, Color backgroundColor, float cornerRadius = 8f)
     {
         return new Panel
         {
@@ -93,15 +77,7 @@ public static partial class LayoutEditorSpark2Runtime
         };
     }
 
-    public static Panel CreateBadge(
-        string debugName,
-        string text,
-        float width,
-        float height,
-        Color backgroundColor,
-        Color textColor,
-        float fontSize = 12f,
-        float cornerRadius = 999f)
+    public static Panel CreateBadge(string debugName, string text, float width, float height, Color backgroundColor, Color textColor, float fontSize = 12f, float cornerRadius = 999f)
     {
         var panel = new Panel
         {
@@ -114,7 +90,7 @@ public static partial class LayoutEditorSpark2Runtime
             ClipContent = true,
         };
 
-        _ = new Label
+        var label = new GameUI.Control.Primitive.Label
         {
             Text = text,
             Width = 0f,
@@ -133,5 +109,9 @@ public static partial class LayoutEditorSpark2Runtime
 
         return panel;
     }
+
+    // ======== Animation & 2D Scene Configuration ========
+    // 这些方法和 Config 类由 LayoutEditorSpark2Runtime.Game2D.cs 提供
+    // 导出器只生成调用代码，实际实现在运行时文件中
 }
 #endif
