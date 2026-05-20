@@ -1,0 +1,1438 @@
+-- ============================================================================
+-- 《问道长生》玩家数据中心
+-- 职责：云端存取、内存缓存、自动存档、派生字段计算
+-- 设计：Load-Gate 模式 —— 标题页异步加载一次，之后 UI 全部同步读取
+-- ============================================================================
+
+local GameServer        = require("game_server")
+local DataRealms        = require("data_realms")
+local DataAttr          = require("data_attributes")
+local DataRace          = require("data_race")
+local DataSpiritRoot    = require("data_spirit_root")
+local DataCultArts      = require("data_cultivation_arts")
+local DataMartialArts   = require("data_martial_arts")
+local DataSect          = require("data_sect")
+local DataSkills        = require("data_skills")
+local DataPets          = require("data_pets")
+
+local Debug = require("ui_debug")
+local Loading = require("ui_loading")
+
+local M = {}
+
+-- ============================================================================
+-- 云变量 Key 常量
+-- ============================================================================
+local PLAYER_KEY      = "player"       -- 主数据（values）
+local REALM_RANK_KEY  = "realm"        -- 境界排行（iscores）
+local POWER_RANK_KEY  = "power"        -- 战力排行（iscores）
+local WEALTH_RANK_KEY = "wealth"       -- 财富排行（iscores）
+
+local SAVE_INTERVAL   = 3.0           -- 自动存档间隔（秒）
+local SAVE_TIMEOUT    = 10.0          -- 单次保存超时（秒），防止 saving_ 卡死
+local MAX_LOGS        = 50            -- 修炼日志条数上限
+
+-- 派生字段名单（Save 时需排除）
+local DERIVED_FIELDS = {
+    realmName = true, cultivationMax = true, xianQiMax = true,
+    lifespanMax = true, power = true,
+}
+
+-- ============================================================================
+-- 模块状态
+-- ============================================================================
+local playerData_ = nil    ---@type table|nil 缓存的玩家数据
+local dirty_      = false  -- 有未保存的变更
+local saveTimer_  = 0
+local loaded_     = false  -- 加载已完成（不论成功/失败）
+local loading_    = false
+local saving_     = false
+local saveStartTime_ = 0   -- 本次保存开始的 os.clock()
+local saveFailCount_ = 0   -- 连续保存失败次数
+local SAVE_FAIL_THRESHOLD = 10  -- 连续失败 N 次后提醒用户
+local needsMigrationSync_ = false  -- 客户端迁移后需要回写云端
+
+-- 货币变化监听
+local CURRENCY_KEYS = { lingStone = true, spiritStone = true, advStone = true }
+local currencyListeners_ = {}  -- { [id] = callback(changedKeys) }
+
+-- Load 自动重试
+local LOAD_RETRY_INTERVAL = 1.0  -- 重试间隔（秒）- 缩短以加速 clientCloud 检测
+local LOAD_RETRY_MAX      = 30   -- 最大重试次数（超过后停止轮询并报错）
+local loadRetryTimer_  = 0
+local loadRetrying_    = false   -- 是否在重试等待中
+local loadCallback_    = nil     -- 缓存的原始回调
+local loadRetryCount_  = 0       -- 已重试次数
+
+
+
+-- ============================================================================
+-- 内部工具
+-- ============================================================================
+
+--- 获取下一小境界的修为需求（仅凡人期 tier 1~10 使用）
+---@param tier number
+---@param sub number
+---@return number
+local function GetNextCultivationReq(tier, sub)
+    if tier >= 11 then return 0 end  -- 仙人期使用仙气，修为无上限
+    if sub < 3 then
+        return DataRealms.GetCultivationReq(tier, sub + 1)
+    elseif tier < 10 then
+        return DataRealms.GetCultivationReq(tier + 1, 1)
+    else
+        return DataRealms.GetCultivationReq(10, 3)
+    end
+end
+
+--- 获取当前小境界的仙气上限（仙人期 tier >= 11）
+---@param tier number
+---@param sub number
+---@return number
+local function GetNextXianQiReq(tier, sub)
+    if tier < 11 then return 0 end
+    if sub < 4 then
+        return DataRealms.GetXianQiReq(tier, sub + 1)
+    elseif tier < 25 then
+        return DataRealms.GetXianQiReq(tier + 1, 1)
+    else
+        return DataRealms.GetXianQiReq(25, 4)
+    end
+end
+
+--- 计算战力值（排行榜用）
+---@param data table
+---@return number
+local function CalcPower(data)
+    return math.floor(
+        (data.attack or 0)
+        + (data.defense or 0) * 0.8
+        + (data.speed or 0) * 0.5
+        + (data.hpMax or 0) / 10
+        + (data.mpMax or 0) / 10
+    )
+end
+
+--- 编码境界为排行榜整数: tier*100 + sub*10
+local function EncodeRealm(tier, sub)
+    return tier * 100 + sub * 10
+end
+
+--- 在缓存数据上附加派生字段（每次修改后调用）
+local function AttachDerived(data)
+    if not data then return data end
+    data.afkStats = data.afkStats or {
+        totalAfkTime = 0,
+        totalBattles = 0,
+        totalWins = 0,
+        totalLosses = 0,
+        totalLingStone = 0,
+        totalGather = 0,
+        totalEquipDrops = 0,
+        totalMatDrops = 0,
+        lastSession = {},
+    }
+    -- 旧数据迁移：knownRecipes（老角色默认解锁培元丹）
+    if not data.knownRecipes then
+        data.knownRecipes = { "peiyuan" }
+    end
+    -- 旧数据迁移：rootBone → spiritRoots
+    if data.rootBone and not data.spiritRoots then
+        data.spiritRoots = DataSpiritRoot.MigrateFromOld(data.rootBone)
+        data.rootBone = nil  -- 清除旧字段
+        needsMigrationSync_ = true
+        print("[GamePlayer] 灵根数据迁移: rootBone → spiritRoots")
+    end
+    -- 旧数据迁移：skills[] → cultivationArt + martialArts（V2 功法拆分）
+    if data.skills and not data.cultivationArt then
+        local race = data.race or "human"
+        -- 1) 迁移修炼功法：从旧 skills 中找吐纳术/冰心诀取等级
+        local cultLevel = 1
+        for _, sk in ipairs(data.skills) do
+            if sk.name == "吐纳术" or sk.name == "冰心诀" then
+                cultLevel = math.max(cultLevel, sk.level or 1)
+            end
+        end
+        local initialArtId = DataCultArts.GetInitialArtForRace(race)
+        data.cultivationArt = { id = initialArtId, level = cultLevel }
+        -- 2) 迁移武学功法：将旧战斗类功法映射为新武学
+        local owned = {}
+        local equipped = {}
+        local ownedSet = {}  -- 去重
+        for _, sk in ipairs(data.skills) do
+            local newId = DataMartialArts.MigrateOldSkill(sk.name)
+            if newId and not ownedSet[newId] then
+                ownedSet[newId] = true
+                owned[#owned + 1] = { id = newId, level = sk.level or 1 }
+                if #equipped < DataMartialArts.MAX_EQUIPPED then
+                    equipped[#equipped + 1] = newId
+                end
+            end
+        end
+        -- 如果没有任何迁移的武学，给予初始武学
+        if #owned == 0 then
+            owned, equipped = DataMartialArts.GetInitialMartialArts(race)
+        end
+        data.martialArts = { equipped = equipped, owned = owned }
+        data.skills = nil  -- 清除旧字段
+        needsMigrationSync_ = true
+        print("[GamePlayer] 功法数据迁移: skills → cultivationArt + martialArts")
+    end
+    -- 旧数据迁移：daoInsights 初始化（确保基础悟道项存在）
+    if not data.daoInsights or #data.daoInsights == 0 then
+        data.daoInsights = {}
+        for _, def in ipairs(DataSkills.DAO_INSIGHTS) do
+            data.daoInsights[#data.daoInsights + 1] = {
+                id          = def.id,
+                name        = def.name,
+                desc        = def.desc or "",
+                reward      = def.reward,
+                maxProgress = def.maxProgress,
+                progress    = 0,
+                mastered    = false,
+                locked      = (def.unlockTier ~= nil),
+            }
+        end
+        needsMigrationSync_ = true
+        print("[GamePlayer] daoInsights 初始化: 添加 " .. #data.daoInsights .. " 项悟道")
+    end
+    -- 旧数据迁移：mainStat 字符串 → table + 补充缺失 subStats（V2 属性格式）
+    do
+        local DataItems = require("data_items")
+        --- 归一化单个法宝的属性数据
+        local function NormalizeArtifactStats(item)
+            if not item then return end
+            local quality = item.quality or "fanqi"
+            local changed = false
+            -- 1) mainStat 字符串 → table
+            if type(item.mainStat) == "string" then
+                local statType = item.mainStat
+                local msMin = DataItems.GetMainStatRange(quality, statType)
+                item.mainStat = { type = statType, value = msMin }
+                changed = true
+            end
+            -- 2) 补充缺失的 subStats
+            local expectedCount = DataItems.SUB_STAT_COUNTS[quality] or 1
+            if not item.subStats or #item.subStats < expectedCount then
+                local mainType = type(item.mainStat) == "table" and item.mainStat.type or ""
+                local existing = item.subStats or {}
+                -- 收集已有副属性类型（避免重复）
+                local usedTypes = {}
+                for _, s in ipairs(existing) do
+                    usedTypes[s.type] = true
+                end
+                usedTypes[mainType] = true  -- 主属性也排除
+                -- 从池中抽取补齐
+                local available = {}
+                for _, s in ipairs(DataItems.EXTRA_STAT_POOL) do
+                    if not usedTypes[s] then
+                        available[#available + 1] = s
+                    end
+                end
+                local toAdd = expectedCount - #existing
+                for _ = 1, toAdd do
+                    if #available == 0 then break end
+                    local idx = math.random(#available)
+                    local st = available[idx]
+                    table.remove(available, idx)
+                    local minVal, maxVal = DataItems.GetSubStatRange(st, quality)
+                    existing[#existing + 1] = { type = st, value = math.random(minVal, maxVal) }
+                end
+                item.subStats = existing
+                changed = true
+            end
+            if changed then
+                print("[GamePlayer] 法宝属性迁移: " .. (item.name or "?") .. " 主:" ..
+                    (type(item.mainStat) == "table" and (item.mainStat.type .. ":" .. item.mainStat.value) or "?") ..
+                    " 副:" .. #(item.subStats or {}) .. "条")
+            end
+        end
+        -- 归一化背包法宝
+        for _, art in ipairs(data.artifacts or {}) do
+            NormalizeArtifactStats(art)
+        end
+        -- 归一化已装备法宝
+        for _, item in pairs(data.equippedItems or {}) do
+            NormalizeArtifactStats(item)
+        end
+        -- 归一化背包物品中的法宝
+        for _, item in ipairs(data.bagItems or {}) do
+            if item.mainStat then
+                NormalizeArtifactStats(item)
+            end
+        end
+    end
+    local tier = data.tier or 1
+    local sub  = data.sub or 1
+    data.realmName      = DataRealms.GetFullName(tier, sub)
+    data.cultivationMax = GetNextCultivationReq(tier, sub)
+    data.xianQiMax      = GetNextXianQiReq(tier, sub)
+    -- 修为溢出保护：防止丹药将修为推高超过当前境界上限
+    if (data.cultivationMax or 0) > 0 and (data.cultivation or 0) > data.cultivationMax then
+        data.cultivation = data.cultivationMax
+    end
+    local realm = DataRealms.GetAnyRealm(tier)
+    data.lifespanMax    = realm and realm.lifespan or 100
+    -- 寿命迁移：未初始化（=0）且非不死体时设为满值
+    if (data.lifespan or 0) == 0 and (data.lifespanMax or 0) > 0 then
+        data.lifespan = data.lifespanMax
+    end
+    data.power          = CalcPower(data)
+    return data
+end
+
+--- 构造新角色默认数据
+local function CreateDefaultData(info)
+    local s = DataAttr.INITIAL_STATS
+    local c = DataAttr.INITIAL_CULTIVATION
+    local race = info.race or DataRace.DEFAULT
+
+    -- 先构造基础属性表，再应用种族加成
+    local baseStats = {
+        hp = s.hp, hpMax = s.hpMax,
+        mp = s.mp, mpMax = s.mpMax,
+        attack = s.attack, defense = s.defense,
+        speed = s.speed, crit = s.crit,
+        dodge = s.dodge, hit = s.hit,
+        wisdom = info.wisdom or c.wisdom,
+    }
+    DataRace.ApplyBonus(race, baseStats)
+
+    return {
+        -- 身份
+        name        = info.name or "无名",
+        gender      = info.gender or "男",
+        avatarIndex = info.avatarIndex or 1,
+        race        = race,
+        -- 境界（源数据）
+        tier = 1, sub = 1,
+        -- 修真属性（V2 灵根系统）
+        spiritRoots = info.spiritRoots or {
+            { type = DataSpiritRoot.BASE_LIST[math.random(1, 5)], quality = DataSpiritRoot.RandomQuality(), slot = 1 },
+        },
+        wisdom   = baseStats.wisdom,
+        fortune  = info.fortune  or c.fortune,
+        daoHeart = info.daoHeart or c.daoHeart,
+        sense    = info.sense    or c.sense,
+        -- 修炼速度加成（种族加成）
+        cultivationSpeedPct = baseStats.cultivationSpeedPct or 0,
+        -- 战斗属性（已含种族加成）
+        hp = baseStats.hpMax, hpMax = baseStats.hpMax,
+        mp = baseStats.mpMax, mpMax = baseStats.mpMax,
+        attack = baseStats.attack, defense = baseStats.defense,
+        speed = baseStats.speed, crit = baseStats.crit,
+        dodge = baseStats.dodge, hit = baseStats.hit,
+        -- 修炼进度（凡人期用 cultivation，仙人期用 xianQi）
+        cultivation = 0,
+        xianQi      = 0,
+        lifespan    = nil,  -- nil=未初始化，AttachDerived 会自动设为满值(lifespanMax)
+        gameYear    = 1,
+        -- 货币
+        spiritStone = 0,   -- 仙石
+        lingStone   = 100, -- 灵石（新手赠送）
+        -- 背包 & 功法 & 法宝 & 丹药
+        bagCapacity = 50,  -- 初始背包容量
+        bagItems    = {
+            -- 新手赠送法宝（碎星剑，凡器品质，weapon 槽位）
+            {
+                name     = "碎星剑",
+                count    = 1,
+                rarity   = "fanqi",
+                desc     = "传承赐予的入门法剑，剑身隐含星辰之力。",
+                category = "fabao",
+                subType  = "手持",
+                quality  = "fanqi",
+                slot     = "weapon",
+                baseAtk  = 12,
+                baseDef  = 0,
+                level    = 1,
+                ascStage = 0,
+                equipLevel = 1,
+                mainStat = { type = "attack", value = 8 },
+                locked   = false,
+                isEquip  = true,
+            },
+            -- 新手赠送强化材料（灵尘 x5）
+            {
+                name     = "灵尘",
+                count    = 5,
+                rarity   = "fanqi",
+                desc     = "装备强化的基础材料。",
+                category = "material",
+                subType  = nil,
+                locked   = false,
+            },
+        },
+        -- V2 功法拆分：修炼功法 + 武学功法
+        cultivationArt = {
+            id = DataCultArts.GetInitialArtForRace(race),
+            level = 1,
+        },
+        unlockedCultArts = {},  -- 已解锁的 drop 功法 { [artId]=true }，initial 类型无需记录
+        martialArts = (function()
+            local owned, equipped = DataMartialArts.GetInitialMartialArts(race)
+            return { equipped = equipped, owned = owned }
+        end)(),
+        artifacts   = {},
+        equippedItems = {},  -- { weapon=item, head=item, body=item, accessory=item, shoes=item }
+        daoInsights = {},
+        -- 灵宠（新手赠送白狐）
+        pets = (function()
+            local bl = DataPets.BLOODLINE.fanshou
+            local talents = DataPets.RollTalents(bl and bl.talentSlots or 1)
+            return {
+                {
+                    uid         = "pet_starter_fox",
+                    templateId  = 1,  -- 白狐
+                    bloodline   = "fanshou",
+                    level       = 1,
+                    exp         = 0,
+                    awakenStage = 0,
+                    talents     = talents,
+                    bond        = 0,
+                    transformed = false,
+                },
+            }
+        end)(),
+        activePetUid = "pet_starter_fox",
+        -- 丹药（新手赠送）
+        pills       = {
+            { name = "培元丹", count = 5, locked = false },
+            { name = "洗髓丹", count = 2, locked = false },
+        },
+        pillUsage   = {},  -- { ["丹药名"] = 已服用次数 } 本境界
+        knownRecipes = { "peiyuan" },  -- 已解锁丹方（初始仅培元丹，其余通过游历/坊市获得）
+        tradingListings = {},  -- 寄售中的物品列表
+        -- 任务 & 试炼
+        quests = { daily = {}, main = {}, side = {} },
+        trials = {},
+        -- 日志
+        cultivationLogs = {},
+        afkStats = {
+            totalAfkTime = 0,
+            totalBattles = 0,
+            totalWins = 0,
+            totalLosses = 0,
+            totalLingStone = 0,
+            totalGather = 0,
+            totalEquipDrops = 0,
+            totalMatDrops = 0,
+            lastSession = {},
+        },
+        -- 时间戳
+        lastSaveTs = os.time(),
+        createdAt  = os.time(),
+    }
+end
+
+-- ============================================================================
+-- 云端读取（Load-Gate）
+-- ============================================================================
+
+--- 异步加载玩家数据，仅在标题页调用一次
+---@param callback fun(success: boolean, isNewPlayer: boolean)
+function M.Load(callback)
+    if loading_ then return end
+    if loaded_ then
+        if callback then callback(true, playerData_ == nil) end
+        return
+    end
+    loading_ = true
+    Loading.Start("正在加载数据...")
+
+    -- 尝试恢复 clientCloud：
+    -- 1) C++ 原生注入的 clientScore
+    -- 2) 网络模式下由 client_net.lua 注入的 polyfill
+    ---@diagnostic disable-next-line: undefined-global
+    if clientCloud == nil and clientScore ~= nil then
+        ---@diagnostic disable-next-line: undefined-global
+        clientCloud = clientScore
+        print("[GamePlayer] 延迟 fallback: clientScore -> clientCloud 成功")
+    end
+    ---@diagnostic disable-next-line: undefined-global
+    if clientCloud == nil and IsNetworkMode() and network.serverConnection then
+        local ClientNet = require("network.client_net")
+        if not ClientNet.IsPolyfill() then
+            ClientNet.InjectPolyfill()
+        end
+    end
+
+    ---@diagnostic disable-next-line: undefined-global
+    if clientCloud == nil then
+        loadRetryCount_ = loadRetryCount_ + 1
+        ---@diagnostic disable-next-line: undefined-global
+        print("[GamePlayer] clientCloud 未就绪 (第" .. loadRetryCount_ .. "次)"
+            .. " | clientScore:" .. tostring(clientScore)
+            .. " | IsNetworkMode:" .. tostring(IsNetworkMode())
+            .. " | serverConn:" .. tostring(network.serverConnection))
+        if loadRetryCount_ >= LOAD_RETRY_MAX then
+            loading_ = false
+            loaded_  = false
+            Loading.Stop()
+            loadRetrying_ = false
+            print("[GamePlayer] clientCloud 注入超时，已重试 " .. loadRetryCount_ .. " 次")
+            local Toast = require("ui_toast")
+            Toast.Show("云存储服务未就绪，请退出重试")
+            if callback then callback(false, false) end
+            return
+        end
+        loading_ = false
+        loadRetrying_   = true
+        loadRetryTimer_ = 0
+        loadCallback_   = callback
+        return
+    end
+
+    local key = GameServer.GetServerKey(PLAYER_KEY)
+    print("[GamePlayer] 开始加载, key:", key)
+
+    ---@diagnostic disable-next-line: undefined-global
+    clientCloud:Get(key, {
+        ok = function(values, _iscores)
+            loading_ = false
+            loaded_  = true
+            loadRetryCount_ = 0
+            Loading.Stop()
+            local raw = values[key]
+            if raw and type(raw) == "table" and raw.name then
+                playerData_ = raw
+                AttachDerived(playerData_)
+                print("[GamePlayer] 加载成功, 角色:", playerData_.name)
+                print("[GamePlayer] 用户ID: " .. tostring(clientCloud and clientCloud.userId or "N/A"))
+                print("[GamePlayer] guideCompleted=" .. tostring(playerData_.guideCompleted))
+            elseif raw and type(raw) == "string" and #raw > 2 then
+                ---@diagnostic disable-next-line: undefined-global
+                local ok2, data = pcall(cjson.decode, raw)
+                if ok2 and type(data) == "table" and data.name then
+                    playerData_ = data
+                    AttachDerived(playerData_)
+                    print("[GamePlayer] 加载成功(json), 角色:", playerData_.name)
+                else
+                    print("[GamePlayer] JSON 解析失败, 视为新玩家")
+                    playerData_ = nil
+                end
+            else
+                print("[GamePlayer] 无角色数据, 新玩家")
+                playerData_ = nil
+            end
+            -- 迁移数据回写云端（联网模式下迁移只改了本地内存，云端仍是旧格式）
+            ---@diagnostic disable-next-line: undefined-global
+            if playerData_ and needsMigrationSync_ and IsNetworkMode() then
+                needsMigrationSync_ = false
+                local toSync = {}
+                for k, v in pairs(playerData_) do
+                    if not DERIVED_FIELDS[k] then toSync[k] = v end
+                end
+                print("[GamePlayer] 检测到数据迁移，回写云端...")
+                ---@diagnostic disable-next-line: undefined-global
+                clientCloud:Set(key, toSync, {
+                    ok = function()
+                        print("[GamePlayer] 迁移数据已回写云端")
+                    end,
+                    error = function(code, reason)
+                        print("[GamePlayer] 迁移数据回写失败: " .. tostring(reason))
+                    end,
+                })
+            end
+            -- 联网模式：拉取独立 pills key + 货币余额
+            ---@diagnostic disable-next-line: undefined-global
+            if playerData_ and IsNetworkMode() then
+                -- 后续流程：拉取货币余额
+                local function FetchCurrencyAndFinish()
+                    local GameOps = require("network.game_ops")
+                    GameOps.Request("currency_get", { playerKey = GameServer.GetServerKey("player") }, function(ok3, data3)
+                        if ok3 then
+                            print("[GamePlayer] 加载后货币同步完成")
+                        end
+                        if callback then callback(true, false) end
+                    end)
+                end
+
+                -- 1) 拉取独立 pills key
+                local pillsKey = GameServer.GetServerKey("pills")
+                ---@diagnostic disable-next-line: undefined-global
+                clientCloud:Get(pillsKey, {
+                    ok = function(pValues)
+                        local pills = pValues and pValues[pillsKey]
+                        if type(pills) == "table" then
+                            -- 独立 key 有数据（含空数组），以此为准
+                            playerData_.pills = pills
+                            print("[GamePlayer] 独立 pills 加载成功, 数量:", #pills)
+                            FetchCurrencyAndFinish()
+                        else
+                            -- 独立 key 尚无数据：检查 blob 中是否有旧 pills 需要迁移
+                            local blobPills = playerData_.pills
+                            if type(blobPills) == "table" and #blobPills > 0 then
+                                print("[GamePlayer] 迁移 blob pills →独立 key, 数量:", #blobPills)
+                                ---@diagnostic disable-next-line: undefined-global
+                                clientCloud:Set(pillsKey, blobPills, {
+                                    ok = function()
+                                        print("[GamePlayer] pills 迁移成功")
+                                        FetchCurrencyAndFinish()
+                                    end,
+                                    error = function()
+                                        print("[GamePlayer] pills 迁移失败, 沿用 blob pills")
+                                        FetchCurrencyAndFinish()
+                                    end,
+                                })
+                            else
+                                -- 两边都无 pills，初始化为空数组
+                                playerData_.pills = {}
+                                print("[GamePlayer] 独立 pills 为空, blob 也无 pills, 初始化为空数组")
+                                FetchCurrencyAndFinish()
+                            end
+                        end
+                    end,
+                    error = function()
+                        print("[GamePlayer] 独立 pills 加载失败, 沿用 blob pills")
+                        FetchCurrencyAndFinish()
+                    end,
+                })
+            else
+                if callback then callback(true, playerData_ == nil) end
+            end
+        end,
+        error = function(code, reason)
+            loading_ = false
+            print("[GamePlayer] 加载失败:", code, reason)
+            Debug.LogError("[网络] 云数据加载失败: code=" .. tostring(code) .. " reason=" .. tostring(reason))
+            playerData_ = nil
+            loadRetryCount_ = loadRetryCount_ + 1
+            if loadRetryCount_ > LOAD_RETRY_MAX then
+                -- 超过最大重试次数，停止重试
+                loadRetrying_ = false
+                local Toast = require("ui_toast")
+                Toast.Show("网络连接失败，请检查网络后重启游戏", { variant = "error" })
+                Loading.Stop()
+                if callback then callback(false, false) end
+                return
+            end
+            -- 启动自动重试（保持 Loading 遮罩）
+            loadRetrying_  = true
+            loadRetryTimer_ = 0
+            loadCallback_  = callback
+            -- 仅首次重试弹出提示，后续静默重试
+            if loadRetryCount_ == 1 then
+                local Toast = require("ui_toast")
+                Toast.Show("网络异常，正在自动重试...")
+            end
+        end,
+    })
+end
+
+-- ============================================================================
+-- 云端写入
+-- ============================================================================
+
+--- 保存玩家数据到云端（BatchSet：主数据 + 3 个排行榜 iscores）
+--- 联网模式下跳过：服务端 handler 已负责所有数据持久化，客户端无需重复写入
+--- force=true 时强制保存（角色创建等特殊场景）
+---@param callback? fun(success: boolean)
+---@param force? boolean
+function M.Save(callback, force)
+    ---@diagnostic disable-next-line: undefined-global
+    if not force and IsNetworkMode() then
+        -- C/S 架构下数据由服务端 handler 保存，客户端不再自行写入
+        if callback then callback(true) end
+        return
+    end
+    ---@diagnostic disable-next-line: undefined-global
+    if not playerData_ or saving_ or clientCloud == nil then
+        if saving_ then
+            print("[GamePlayer] Save跳过: 上次未完成("
+                .. math.floor(os.clock() - saveStartTime_) .. "s)")
+        end
+        if callback then callback(false) end
+        return
+    end
+    saving_ = true
+    saveStartTime_ = os.clock()
+    dirty_  = false
+    playerData_.lastSaveTs = os.time()
+
+    -- 构造可序列化副本（排除派生字段）
+    local toSave = {}
+    for k, v in pairs(playerData_) do
+        if not DERIVED_FIELDS[k] then toSave[k] = v end
+    end
+
+    local key       = GameServer.GetServerKey(PLAYER_KEY)
+    local realmKey  = GameServer.GetGroupKey(REALM_RANK_KEY)
+    local powerKey  = GameServer.GetGroupKey(POWER_RANK_KEY)
+    local wealthKey = GameServer.GetGroupKey(WEALTH_RANK_KEY)
+
+    local tier = playerData_.tier or 1
+    local sub  = playerData_.sub or 1
+
+    ---@diagnostic disable-next-line: undefined-global
+    clientCloud:BatchSet()
+        :Set(key, toSave)
+        :SetInt(realmKey,  EncodeRealm(tier, sub))
+        :SetInt(powerKey,  CalcPower(playerData_))
+        :SetInt(wealthKey, (playerData_.lingStone or 0)
+                         + (playerData_.spiritStone or 0) * 100)
+        :Save("auto_save", {
+            ok = function()
+                saving_ = false
+                if saveFailCount_ > 0 then
+                    print("[GamePlayer] 网络恢复，保存成功（此前失败 " .. saveFailCount_ .. " 次）")
+                end
+                saveFailCount_ = 0
+                if callback then callback(true) end
+            end,
+            error = function(code, reason)
+                saving_ = false
+                dirty_ = true  -- 失败后重新标脏
+                saveFailCount_ = saveFailCount_ + 1
+                print("[GamePlayer] 保存失败(" .. saveFailCount_ .. "):", code, reason)
+                Debug.LogError("[网络] 云数据保存失败: code=" .. tostring(code) .. " reason=" .. tostring(reason))
+                if saveFailCount_ == SAVE_FAIL_THRESHOLD then
+                    local Toast = require("ui_toast")
+                    Toast.Show("网络异常，数据暂未保存，请检查网络连接")
+                end
+                if callback then callback(false) end
+            end,
+        })
+end
+
+-- ============================================================================
+-- 快照 & 关键存档（SaveCritical）
+-- ============================================================================
+
+--- 深拷贝表
+---@param t table
+---@return table
+local function deepCopy(t)
+    if type(t) ~= "table" then return t end
+    local copy = {}
+    for k, v in pairs(t) do
+        copy[k] = deepCopy(v)
+    end
+    return copy
+end
+
+--- 生成当前玩家数据的快照（深拷贝）
+---@return table|nil
+function M.Snapshot()
+    if not playerData_ then return nil end
+    return deepCopy(playerData_)
+end
+
+--- 关键操作存档：立即保存，失败则回滚到快照
+--- 联网模式下跳过：服务端 handler 已完成保存，无需客户端重复写入
+---@param snap table Snapshot() 返回的快照
+---@param opName string 操作名称（如 "强化"、"炼丹"）
+function M.SaveCritical(snap, opName)
+    ---@diagnostic disable-next-line: undefined-global
+    if IsNetworkMode() then return end  -- C/S 架构由服务端保存
+
+    if not playerData_ or not snap then
+        M.MarkDirty()
+        return
+    end
+    -- 强制重置 saving_ 防止被卡住
+    saving_ = false
+    saveTimer_ = 0
+    dirty_ = false
+
+    M.Save(function(success)
+        if not success then
+            -- 回滚到快照
+            playerData_ = snap
+            AttachDerived(playerData_)
+            dirty_ = true  -- 标脏以便后续自动保存重试
+            print("[GamePlayer] SaveCritical失败,已回滚: " .. opName)
+            local Toast = require("ui_toast")
+            Toast.Show(opName .. "失败(-1)，请重试", "error")
+        end
+    end)
+end
+
+-- ============================================================================
+-- 同步读取接口（UI 层调用）
+-- ============================================================================
+
+--- 获取玩家数据（含派生字段），未加载返回 nil
+---@return table|nil
+function M.Get()
+    return playerData_
+end
+
+--- 是否已完成加载
+function M.IsLoaded() return loaded_ end
+
+--- 是否有角色数据
+function M.HasCharacter() return loaded_ and playerData_ ~= nil end
+
+--- 标记数据已修改
+function M.MarkDirty() dirty_ = true end
+
+-- ============================================================================
+-- 角色创建（传承页调用）
+-- ============================================================================
+
+--- 检查角色名是否可用（服务端重名检测）
+--- 联网模式下调用 GameOps 检查同区服是否有重名，非联网模式直接返回可用
+---@param name string 角色名
+---@param callback fun(ok: boolean, errMsg?: string)
+function M.CheckCharacterName(name, callback)
+    ---@diagnostic disable-next-line: undefined-global
+    if not IsNetworkMode() then
+        -- 单机模式不检测重名
+        callback(true)
+        return
+    end
+    local GameOps = require("network.game_ops")
+    GameOps.Request("check_character_name", {
+        name = name,
+        serverKey = GameServer.GetServerKey("player"),
+    }, function(ok, data)
+        if ok then
+            callback(true)
+        else
+            callback(false, data and data.msg or "角色名检查失败")
+        end
+    end, { loading = "检查角色名..." })
+end
+
+--- 创建新角色并立即保存
+---@param charInfo table { name, gender, avatarIndex, spiritRoots?, ... }
+---@param callback? fun(success: boolean)
+function M.CreateCharacter(charInfo, callback)
+    playerData_ = CreateDefaultData(charInfo)
+    AttachDerived(playerData_)
+    loaded_ = true
+    dirty_  = false
+    print("[GamePlayer] 创建角色:", playerData_.name, playerData_.gender)
+    M.Save(function(ok)
+        if not ok then
+            if callback then callback(false) end
+            return
+        end
+        -- 新角色创建后立即触发货币迁移：将 playerData.lingStone 同步到 serverCloud.money
+        -- 否则强化等使用 serverCloud.money:Cost 的操作会因余额为 0 而失败
+        ---@diagnostic disable-next-line: undefined-global
+        if IsNetworkMode() then
+            local GameOps = require("network.game_ops")
+            GameOps.Request("currency_get", { playerKey = GameServer.GetServerKey("player") }, function(ok2, data2)
+                if ok2 then
+                    print("[GamePlayer] 新角色货币迁移完成")
+                else
+                    print("[GamePlayer] 新角色货币迁移失败，坊市访问时会重试")
+                end
+                -- 发送新手礼包邮件（异步，不阻塞角色创建流程）
+                GameOps.Request("send_newbie_mail", {}, function(ok3, data3)
+                    if ok3 then
+                        print("[GamePlayer] 新手礼包邮件已发送")
+                    else
+                        print("[GamePlayer] 新手礼包邮件发送失败: " .. tostring(data3 and data3.msg))
+                    end
+                end)
+                if callback then callback(true) end
+            end)
+        else
+            if callback then callback(true) end
+        end
+    end, true)  -- force=true: 角色创建必须写入（联网模式也需要）
+end
+
+-- ============================================================================
+-- Update（main.lua 每帧调用，驱动自动存档）
+-- ============================================================================
+
+---@param dt number
+function M.Update(dt)
+    -- Load 自动重试
+    if loadRetrying_ and not loading_ then
+        ---@diagnostic disable-next-line: undefined-global
+        if clientCloud ~= nil then
+            -- polyfill/clientCloud 已就绪，立即重试（不等定时器）
+            print("[GamePlayer] clientCloud 已就绪，立即重试加载")
+            loadRetrying_ = false
+            M.Load(loadCallback_)
+            return
+        end
+        loadRetryTimer_ = loadRetryTimer_ + dt
+        if loadRetryTimer_ >= LOAD_RETRY_INTERVAL then
+            loadRetryTimer_ = 0
+            ---@diagnostic disable-next-line: undefined-global
+            print("[GamePlayer] 重试加载 #" .. (loadRetryCount_ + 1)
+                .. " | clientCloud:" .. tostring(clientCloud)
+                .. " | clientScore:" .. tostring(clientScore))
+            loadRetrying_ = false
+            M.Load(loadCallback_)
+        end
+    end
+
+    -- 联网模式下跳过自动存档（服务端 handler 已负责持久化）
+    ---@diagnostic disable-next-line: undefined-global
+    if IsNetworkMode() then return end
+
+    -- saving_ 超时保护：回调丢失时强制重置，避免永久卡死
+    if saving_ and (os.clock() - saveStartTime_) > SAVE_TIMEOUT then
+        print("[GamePlayer] 保存超时,强制重置")
+        saving_ = false
+        dirty_  = true  -- 重新标脏以触发下次保存
+    end
+
+    -- 自动存档
+    if not dirty_ or not playerData_ then return end
+    saveTimer_ = saveTimer_ + dt
+    if saveTimer_ >= SAVE_INTERVAL then
+        saveTimer_ = 0
+        print("[GamePlayer] 触发自动保存")
+        M.Save()
+    end
+end
+
+-- ============================================================================
+-- 数据修改器（全部自动标脏 + 刷新派生字段）
+-- ============================================================================
+
+--- 增加修为（凡人期 tier 1~10）
+---@param amount number
+function M.AddCultivation(amount)
+    if not playerData_ then return end
+    playerData_.cultivation = (playerData_.cultivation or 0) + amount
+    AttachDerived(playerData_)
+    dirty_ = true
+end
+
+--- 增加仙气（仙人期 tier >= 11）
+---@param amount number
+function M.AddXianQi(amount)
+    if not playerData_ then return end
+    playerData_.xianQi = (playerData_.xianQi or 0) + amount
+    AttachDerived(playerData_)
+    dirty_ = true
+end
+
+--- 设置境界（突破后调用）
+---@param tier number
+---@param sub number
+function M.SetRealm(tier, sub)
+    if not playerData_ then return end
+    playerData_.tier = tier
+    playerData_.sub  = sub
+    playerData_.cultivation = 0
+    AttachDerived(playerData_)
+    dirty_ = true
+end
+
+--- 应用大境界突破增幅
+---@param fromTier number 突破前的大境界阶数
+function M.ApplyBreakBonus(fromTier)
+    if not playerData_ then return end
+    local b = DataRealms.GetBreakBonus(fromTier)
+    if not b then return end
+    playerData_.attack  = (playerData_.attack or 0)  + b.atk
+    playerData_.defense = (playerData_.defense or 0) + b.def
+    playerData_.hpMax   = (playerData_.hpMax or 0)   + b.hp
+    playerData_.hp      = playerData_.hpMax
+    playerData_.speed   = (playerData_.speed or 0)   + b.spd
+    playerData_.crit    = (playerData_.crit or 0)    + b.crit
+    playerData_.sense   = (playerData_.sense or 0)   + (b.sense or 0)
+    AttachDerived(playerData_)
+    dirty_ = true
+end
+
+--- 获取货币余额
+---@param currency string "lingStone"|"spiritStone"
+---@return number
+function M.GetCurrency(currency)
+    if playerData_ then
+        return playerData_[currency] or 0
+    end
+    return 0
+end
+
+--- 注册货币变化监听器
+---@param id string 监听器 ID（用于注销）
+---@param callback fun(changedKeys: table) 变化时回调，changedKeys = { lingStone=true, ... }
+function M.OnCurrencyChange(id, callback)
+    currencyListeners_[id] = callback
+end
+
+--- 注销货币变化监听器
+---@param id string
+function M.OffCurrencyChange(id)
+    currencyListeners_[id] = nil
+end
+
+--- 内部：触发货币变化通知
+local function NotifyCurrencyChange(changedKeys)
+    for id, cb in pairs(currencyListeners_) do
+        local ok2, err = pcall(cb, changedKeys)
+        if not ok2 then
+            print("[GamePlayer] currency listener '" .. id .. "' error: " .. tostring(err))
+        end
+    end
+end
+
+--- 增减货币
+---@param currency string "lingStone"|"spiritStone"
+---@param amount number 正数增加，负数减少
+---@return boolean 余额不足时返回 false
+function M.AddCurrency(currency, amount)
+    if not playerData_ then return false end
+    local cur = playerData_[currency] or 0
+    if amount < 0 and cur < math.abs(amount) then return false end
+    playerData_[currency] = cur + amount
+    dirty_ = true
+    return true
+end
+
+--- 添加背包物品（自动堆叠同名物品，自动附加分类信息）
+--- 容量防护：新物品需占用新格子时，检查是否已满
+---@param item table { name, count?, rarity?, desc?, category?, subType? }
+---@return boolean ok  true=成功, false=背包已满
+function M.AddItem(item)
+    if not playerData_ then return false end
+    for _, e in ipairs(playerData_.bagItems) do
+        if e.name == item.name then
+            e.count = (e.count or 0) + (item.count or 1)
+            dirty_ = true
+            return true
+        end
+    end
+    -- 容量检查：新物品需要新格子
+    local DataItems = require("data_items")
+    local cap = playerData_.bagCapacity or DataItems.BAG_EXPAND.initialCapacity
+    if #(playerData_.bagItems) >= cap then
+        return false
+    end
+    -- 自动推断分类
+    local cat = item.category
+    local sub = item.subType
+    if not cat then
+        cat, sub = DataItems.InferCategory(item.name)
+    end
+    table.insert(playerData_.bagItems, {
+        name     = item.name,
+        count    = item.count or 1,
+        rarity   = item.rarity or "common",
+        desc     = item.desc or "",
+        category = cat,
+        subType  = sub,
+        locked   = false,
+    })
+    dirty_ = true
+    return true
+end
+
+--- 添加装备到 bagItems（V2 结构，不堆叠，每件独立）
+--- 用于商铺/坊市购买法宝、下架退回等场景
+---@param equipData table { name, slot, quality, effect?, desc?, equipLevel? }
+---@return boolean ok
+function M.AddEquipToBag(equipData)
+    if not playerData_ then return false end
+    playerData_.bagItems = playerData_.bagItems or {}
+    local DataItems = require("data_items")
+    local cap = playerData_.bagCapacity or DataItems.BAG_EXPAND.initialCapacity
+    if #playerData_.bagItems >= cap then return false end
+    local slotDef = DataItems.GetSlotByKey(equipData.slot or "weapon")
+    local quality = equipData.quality or "fanqi"
+    if DataItems.OLD_QUALITY_MAP and DataItems.OLD_QUALITY_MAP[quality] then
+        quality = DataItems.OLD_QUALITY_MAP[quality]
+    end
+    table.insert(playerData_.bagItems, {
+        name       = equipData.name,
+        slot       = equipData.slot or "weapon",
+        subType    = slotDef and slotDef.label or "手持",
+        category   = "fabao",
+        quality    = quality,
+        rarity     = quality,
+        count      = 1,
+        mainStat   = equipData.mainStat or nil,
+        subStats   = equipData.subStats or nil,
+        equipLevel = equipData.equipLevel or 1,
+        timestamp  = os.time(),
+        desc       = equipData.desc or equipData.effect or "商铺购买",
+        isEquip    = true,
+    })
+    dirty_ = true
+    return true
+end
+
+--- 添加法宝到 artifacts 列表（旧系统，保留兼容）
+---@param artDef table { name, quality, slot, effect, desc? }
+function M.AddArtifact(artDef, equipLevel)
+    if not playerData_ then return end
+    -- 检查重名（法宝不可堆叠）
+    for _, a in ipairs(playerData_.artifacts or {}) do
+        if a.name == artDef.name then return end
+    end
+    local DataItems = require("data_items")
+    local quality = artDef.quality or "fanqi"
+    if DataItems.OLD_QUALITY_MAP[quality] then
+        quality = DataItems.OLD_QUALITY_MAP[quality]
+    end
+    table.insert(playerData_.artifacts, {
+        name       = artDef.name,
+        quality    = quality,
+        slot       = artDef.slot or "weapon",
+        effect     = artDef.effect or "",
+        desc       = artDef.desc or "",
+        level      = 1,
+        ascStage   = 0,
+        equipped   = false,
+        equipLevel = equipLevel or 1,
+    })
+    dirty_ = true
+end
+
+--- 添加武学功法到 owned 列表（去重）
+---@param artId string 武学 ID
+---@param level? number 初始等级（默认 1）
+---@return boolean added 是否成功添加（已拥有返回 false）
+function M.AddMartialArt(artId, level)
+    if not playerData_ then return false end
+    playerData_.martialArts = playerData_.martialArts or { equipped = {}, owned = {} }
+    -- 去重检查
+    for _, a in ipairs(playerData_.martialArts.owned) do
+        if a.id == artId then return false end
+    end
+    playerData_.martialArts.owned[#playerData_.martialArts.owned + 1] = { id = artId, level = level or 1 }
+    dirty_ = true
+    return true
+end
+
+--- 移除背包物品（按索引）
+---@param index number
+---@param count? number 默认移除全部
+---@return boolean
+function M.RemoveItem(index, count)
+    if not playerData_ then return false end
+    local items = playerData_.bagItems
+    if index < 1 or index > #items then return false end
+    local item = items[index]
+    local n = count or item.count
+    if item.count <= n then
+        table.remove(items, index)
+    else
+        item.count = item.count - n
+    end
+    dirty_ = true
+    return true
+end
+
+--- 按名称移除物品
+---@param name string
+---@param count? number
+---@return boolean
+function M.RemoveItemByName(name, count)
+    if not playerData_ then return false end
+    for i, item in ipairs(playerData_.bagItems) do
+        if item.name == name then
+            return M.RemoveItem(i, count)
+        end
+    end
+    return false
+end
+
+--- 添加修炼日志（自动限长）
+---@param text string
+function M.AddLog(text)
+    if not playerData_ then return end
+    local logs = playerData_.cultivationLogs
+    table.insert(logs, text)
+    while #logs > MAX_LOGS do table.remove(logs, 1) end
+    dirty_ = true
+end
+
+--- 增加寿命 / 游戏年份
+---@param years number
+function M.AddLifespan(years)
+    if not playerData_ then return end
+    playerData_.lifespan = (playerData_.lifespan or 0) + years
+    playerData_.gameYear = (playerData_.gameYear or 1) + years
+    dirty_ = true
+end
+
+--- 消耗寿元（统一接口）
+--- 不死体（lifespanMax < 0）不消耗
+---@param years number 要消耗的寿元年数
+---@param reason? string 消耗原因（日志用）
+---@return number actual 实际消耗的年数
+function M.ConsumeLifespan(years, reason)
+    if not playerData_ then return 0 end
+    if (playerData_.lifespanMax or 0) < 0 then return 0 end  -- 不死体不消耗
+    local actual = math.min(years, playerData_.lifespan or 0)
+    if actual <= 0 then return 0 end
+    playerData_.lifespan = (playerData_.lifespan or 0) - actual
+    playerData_.gameYear = (playerData_.gameYear or 1) + actual
+    dirty_ = true
+    -- 寿元耗尽检测
+    if (playerData_.lifespan or 0) <= 0 then
+        M.OnLifespanDepleted()
+    end
+    return actual
+end
+
+--- 检查角色是否寿元耗尽（已陨落）
+---@return boolean
+function M.IsLifespanDepleted()
+    if not playerData_ then return false end
+    if (playerData_.lifespanMax or 0) < 0 then return false end  -- 不死体
+    return (playerData_.lifespan or 0) <= 0
+end
+
+--- 寿元耗尽回调 — 触发陨落流程
+function M.OnLifespanDepleted()
+    if not playerData_ then return end
+    print("[GamePlayer] 寿元耗尽！触发陨落流程 gameYear=" .. tostring(playerData_.gameYear))
+    local ok, UIRebirth = pcall(require, "ui_rebirth")
+    if ok and UIRebirth and UIRebirth.Show then
+        UIRebirth.Show()
+    end
+end
+
+--- 恢复气血
+---@param amount number
+function M.HealHP(amount)
+    if not playerData_ then return end
+    playerData_.hp = math.min(
+        playerData_.hpMax or 800,
+        (playerData_.hp or 0) + amount
+    )
+    dirty_ = true
+end
+
+--- 恢复灵力
+---@param amount number
+function M.HealMP(amount)
+    if not playerData_ then return end
+    playerData_.mp = math.min(
+        playerData_.mpMax or 200,
+        (playerData_.mp or 0) + amount
+    )
+    dirty_ = true
+end
+
+--- 计算离线收益（返回离线秒数和获得的修为）
+---@return number seconds, number cultivation
+function M.CalcOfflineGains()
+    if not playerData_ then return 0, 0 end
+    local elapsed = math.max(0, os.time() - (playerData_.lastSaveTs or os.time()))
+    if elapsed < 60 then return 0, 0 end
+    local GameCultivation = require("game_cultivation")
+    local perSec = GameCultivation.GetPerSec()
+    local gained = math.floor(perSec * elapsed * 0.5)  -- 离线效率 50%
+    return elapsed, gained
+end
+
+--- 强制立即保存
+---@param callback? fun(success: boolean)
+function M.ForceSave(callback)
+    dirty_ = false
+    saveTimer_ = 0
+    M.Save(callback)
+end
+
+-- ============================================================================
+-- 丹药服用次数管理（每境界重置）
+-- ============================================================================
+
+--- 获取某丹药在本境界的已服用次数
+---@param pillName string
+---@return number
+function M.GetPillUsage(pillName)
+    if not playerData_ then return 0 end
+    local usage = playerData_.pillUsage or {}
+    return usage[pillName] or 0
+end
+
+--- 增加某丹药的服用次数
+---@param pillName string
+function M.AddPillUsage(pillName)
+    if not playerData_ then return end
+    playerData_.pillUsage = playerData_.pillUsage or {}
+    playerData_.pillUsage[pillName] = (playerData_.pillUsage[pillName] or 0) + 1
+    dirty_ = true
+end
+
+--- 重置丹药服用次数（突破大境界后调用）
+function M.ResetPillUsage()
+    if not playerData_ then return end
+    playerData_.pillUsage = {}
+    dirty_ = true
+end
+
+-- ============================================================================
+-- 装备 / 法宝属性加成明细（仅用于 UI 展示，战斗数值已烘焙在 playerData 中）
+-- ============================================================================
+
+--- 计算已穿戴装备的属性加成总和
+---@return table { attack, defense, crit, speed, hp, dodge, hit }
+function M.GetEquippedBonus()
+    local bonus = { attack = 0, defense = 0, crit = 0, speed = 0, hp = 0, dodge = 0, hit = 0 }
+    local p = playerData_
+    if not p then return bonus end
+    local equipped = p.equippedItems or {}
+    for _, item in pairs(equipped) do
+        if item then
+            bonus.attack  = bonus.attack  + (item.baseAtk or 0)
+            bonus.defense = bonus.defense + (item.baseDef or 0)
+            bonus.crit    = bonus.crit    + (item.baseCrit or 0)
+            bonus.speed   = bonus.speed   + (item.baseSpd or 0)
+            for _, es in ipairs(item.extraStats or {}) do
+                local stat = es.stat
+                local val  = es.value or 0
+                if stat == "hp" then
+                    bonus.hp = bonus.hp + val
+                elseif bonus[stat] ~= nil then
+                    bonus[stat] = bonus[stat] + val
+                end
+            end
+        end
+    end
+    return bonus
+end
+
+--- 计算已装备法宝的属性加成总和（含强化增幅）
+---@return table { attack, defense, crit, speed, mpMax }
+function M.GetArtifactBonus()
+    local bonus = { attack = 0, defense = 0, crit = 0, speed = 0, mpMax = 0 }
+    local p = playerData_
+    if not p then return bonus end
+    local GameItems = require("game_items")
+    local DataItems = require("data_items")
+    for _, art in ipairs(p.artifacts or {}) do
+        if art.equipped and art.effect then
+            local enhancePct = 0
+            if (art.level or 1) > 1 then
+                for lv = 1, (art.level or 1) - 1 do
+                    local info = DataItems.GetEnhanceInfo(lv)
+                    if info then enhancePct = enhancePct + info.pct end
+                end
+            end
+            local effects = GameItems.ParseEffect(art.effect)
+            for _, e in ipairs(effects) do
+                local boosted = math.floor(e.value * (1 + enhancePct / 100))
+                local k = e.key
+                if k == "攻击" then
+                    bonus.attack = bonus.attack + boosted
+                elseif k == "防御" then
+                    bonus.defense = bonus.defense + boosted
+                elseif k == "速度" then
+                    bonus.speed = bonus.speed + boosted
+                elseif k == "暴击" then
+                    bonus.crit = bonus.crit + boosted
+                elseif k == "灵力上限" then
+                    bonus.mpMax = bonus.mpMax + boosted
+                end
+            end
+        end
+    end
+    return bonus
+end
+
+--- 计算宗门种族加成的绝对属性值（仅用于 UI 展示）
+--- 宗门等级 >= 3 时，根据种族给对应属性加成百分比
+---@return table { attack, defense, speed, hpMax, cultivationSpeed }
+function M.GetSectBonus()
+    local bonus = { attack = 0, defense = 0, speed = 0, hpMax = 0, cultivationSpeed = 0 }
+    local p = playerData_
+    if not p then return bonus end
+
+    -- 从 GameSect 获取宗门等级（延迟 require 避免循环依赖）
+    local GameSect = require("game_sect")
+    local sectInfo = GameSect.GetSectInfo()
+    if not sectInfo then return bonus end
+
+    local sectLevel = sectInfo.level or 1
+    local race = p.race or "human"
+    local rb = DataSect.GetRaceBonus(race, sectLevel)
+    if not rb then return bonus end
+
+    -- 百分比加成转绝对值
+    local stat = rb.stat
+    local pct  = rb.value  -- e.g. 0.05 = 5%
+    if stat == "attack" then
+        bonus.attack = math.floor((p.attack or 0) * pct)
+    elseif stat == "speed" then
+        bonus.speed = math.floor((p.speed or 0) * pct)
+    elseif stat == "maxHp" then
+        bonus.hpMax = math.floor((p.hpMax or 0) * pct)
+    elseif stat == "cultivationSpeed" then
+        bonus.cultivationSpeed = pct  -- 修炼速度保留百分比值
+    end
+    return bonus
+end
+
+--- 重新计算派生字段（装备/功法变更后调用）
+function M.RefreshDerived()
+    if not playerData_ then return end
+    AttachDerived(playerData_)
+    dirty_ = true
+end
+
+-- ============================================================================
+-- 服务端权威同步（Game Gateway 回传）
+-- ============================================================================
+
+--- 同步单个字段（服务端回传余额等场景）
+---@param field string 字段名
+---@param value any 新值
+function M.SyncField(field, value)
+    if not playerData_ then return end
+    if DERIVED_FIELDS[field] then return end
+    local old = playerData_[field]
+    playerData_[field] = value
+    -- 货币变化通知
+    if CURRENCY_KEYS[field] and old ~= value then
+        NotifyCurrencyChange({ [field] = true })
+    end
+    dirty_ = true
+end
+
+--- 应用服务端回传的同步数据（绝对值覆盖）
+--- sync 格式: { lingStone = 500, spiritStone = 20 }
+---@param sync table
+function M.ApplySync(sync)
+    if not playerData_ or not sync then return end
+    local changed = false
+    local currencyChanged = {}  -- 记录变化的货币字段
+    for k, v in pairs(sync) do
+        if not DERIVED_FIELDS[k] then
+            -- 检测货币变化
+            if CURRENCY_KEYS[k] and playerData_[k] ~= v then
+                currencyChanged[k] = true
+            end
+            playerData_[k] = v
+            changed = true
+        end
+    end
+    if changed then
+        AttachDerived(playerData_)
+        dirty_ = true
+
+        -- 货币变化通知
+        if next(currencyChanged) then
+            NotifyCurrencyChange(currencyChanged)
+        end
+    end
+end
+
+--- 重置状态（切换服务器时调用）
+function M.Reset()
+    playerData_ = nil
+    dirty_      = false
+    saveTimer_  = 0
+    loaded_     = false
+    loading_    = false
+    saving_     = false
+    saveStartTime_ = 0
+    saveFailCount_  = 0
+    loadRetrying_   = false
+    loadRetryTimer_ = 0
+    loadCallback_   = nil
+    loadRetryCount_ = 0
+
+    local okSect, GameSect = pcall(require, "game_sect")
+    if okSect and GameSect.Reset then
+        GameSect.Reset()
+    end
+end
+
+return M

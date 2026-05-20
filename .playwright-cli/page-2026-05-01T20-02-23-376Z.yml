@@ -1,0 +1,467 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - strong [ref=e6]: 项目与界面
+      - generic [ref=e8]:
+        - generic [ref=e9]: 项目资源
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - button "默认项目 1 个界面" [ref=e28] [cursor=pointer]:
+              - generic [ref=e29]: 默认项目
+              - generic [ref=e30]: 1 个界面
+            - generic [ref=e31]:
+              - button "重命名" [ref=e32] [cursor=pointer]
+              - button "删除" [ref=e33] [cursor=pointer]
+          - generic [ref=e34]:
+            - button "未分类 1 个界面" [ref=e36]:
+              - generic [ref=e37]: 未分类
+              - generic [ref=e38]: 1 个界面
+            - generic [ref=e39]:
+              - button "新界面 page_fa75657f" [ref=e40] [cursor=pointer]:
+                - generic [ref=e41]: 新界面
+                - generic [ref=e42]: page_fa75657f
+              - generic [ref=e43]:
+                - button "改名" [ref=e44] [cursor=pointer]
+                - button "删除" [ref=e45] [cursor=pointer]
+        - generic [ref=e12]:
+          - generic [ref=e13]: 创建项目
+          - textbox "新项目名称" [ref=e14]
+          - button "创建项目" [active] [ref=e15]
+        - generic [ref=e46]:
+          - generic [ref=e47]: 在当前项目中创建分类
+          - textbox "新分类名称" [ref=e48]
+          - button "创建分类" [ref=e49]
+        - generic [ref=e50]:
+          - generic [ref=e51]: 在当前项目中创建界面
+          - textbox "新界面名称" [ref=e52]
+          - combobox [ref=e53]:
+            - option "未分类" [selected]
+          - button "创建界面" [ref=e54]
+    - generic [ref=e55]:
+      - strong [ref=e56]: 节点树
+      - generic [ref=e58]:
+        - generic [ref=e59] [cursor=pointer]:
+          - generic [ref=e60]:
+            - text: 容器
+            - generic [ref=e61]: "#root"
+          - combobox [ref=e62]:
+            - option "添加子节点" [selected]
+            - option "容器"
+            - option "文本"
+            - option "按钮"
+            - option "图片"
+            - option "滚动区"
+            - option "网格"
+            - option "列表"
+            - option "分页标签"
+            - option "弹窗"
+            - option "进度条"
+            - option "角标"
+            - option "占位间距"
+        - generic [ref=e63]:
+          - generic [ref=e64] [cursor=pointer]:
+            - generic [ref=e65]:
+              - text: 容器
+              - generic [ref=e66]: "#header"
+            - combobox [ref=e67]:
+              - option "添加子节点" [selected]
+              - option "容器"
+              - option "文本"
+              - option "按钮"
+              - option "图片"
+              - option "滚动区"
+              - option "网格"
+              - option "列表"
+              - option "分页标签"
+              - option "弹窗"
+              - option "进度条"
+              - option "角标"
+              - option "占位间距"
+          - generic [ref=e69] [cursor=pointer]:
+            - generic [ref=e70]:
+              - text: 文本
+              - generic [ref=e71]: "#title"
+            - combobox [ref=e72]:
+              - option "添加子节点" [selected]
+              - option "容器"
+              - option "文本"
+              - option "按钮"
+              - option "图片"
+              - option "滚动区"
+              - option "网格"
+              - option "列表"
+              - option "分页标签"
+              - option "弹窗"
+              - option "进度条"
+              - option "角标"
+              - option "占位间距"
+        - generic [ref=e73]:
+          - generic [ref=e74] [cursor=pointer]:
+            - generic [ref=e75]:
+              - text: 容器
+              - generic [ref=e76]: "#content"
+            - combobox [ref=e77]:
+              - option "添加子节点" [selected]
+              - option "容器"
+              - option "文本"
+              - option "按钮"
+              - option "图片"
+              - option "滚动区"
+              - option "网格"
+              - option "列表"
+              - option "分页标签"
+              - option "弹窗"
+              - option "进度条"
+              - option "角标"
+              - option "占位间距"
+          - generic [ref=e79] [cursor=pointer]:
+            - generic [ref=e80]:
+              - text: 文本
+              - generic [ref=e81]: "#intro_text"
+            - combobox [ref=e82]:
+              - option "添加子节点" [selected]
+              - option "容器"
+              - option "文本"
+              - option "按钮"
+              - option "图片"
+              - option "滚动区"
+              - option "网格"
+              - option "列表"
+              - option "分页标签"
+              - option "弹窗"
+              - option "进度条"
+              - option "角标"
+              - option "占位间距"
+          - generic [ref=e84] [cursor=pointer]:
+            - generic [ref=e85]:
+              - text: 按钮
+              - generic [ref=e86]: "#action_button"
+            - combobox [ref=e87]:
+              - option "添加子节点" [selected]
+              - option "容器"
+              - option "文本"
+              - option "按钮"
+              - option "图片"
+              - option "滚动区"
+              - option "网格"
+              - option "列表"
+              - option "分页标签"
+              - option "弹窗"
+              - option "进度条"
+              - option "角标"
+              - option "占位间距"
+    - generic [ref=e88]:
+      - strong [ref=e89]: 模板库
+      - generic [ref=e91]:
+        - button "移动端主页 默认的移动端应用主页骨架。 页面模板" [ref=e92] [cursor=pointer]:
+          - generic [ref=e93]: 移动端主页
+          - generic [ref=e94]: 默认的移动端应用主页骨架。
+          - generic [ref=e95]: 页面模板
+        - button "确认弹窗 居中的确认弹窗布局。 页面模板" [ref=e96] [cursor=pointer]:
+          - generic [ref=e97]: 确认弹窗
+          - generic [ref=e98]: 居中的确认弹窗布局。
+          - generic [ref=e99]: 页面模板
+        - button "修仙战斗 HUD 修仙/放置/养成类战斗主 HUD。 页面模板" [ref=e100] [cursor=pointer]:
+          - generic [ref=e101]: 修仙战斗 HUD
+          - generic [ref=e102]: 修仙/放置/养成类战斗主 HUD。
+          - generic [ref=e103]: 页面模板
+        - button "益智关卡选择 适合三消、解谜、数独类关卡入口。 页面模板" [ref=e104] [cursor=pointer]:
+          - generic [ref=e105]: 益智关卡选择
+          - generic [ref=e106]: 适合三消、解谜、数独类关卡入口。
+          - generic [ref=e107]: 页面模板
+        - button "塔防战斗界面 波次信息、建造按钮、暂停与倍速入口。 页面模板" [ref=e108] [cursor=pointer]:
+          - generic [ref=e109]: 塔防战斗界面
+          - generic [ref=e110]: 波次信息、建造按钮、暂停与倍速入口。
+          - generic [ref=e111]: 页面模板
+        - button "RPG 角色面板 角色属性、装备位、成长操作区。 页面模板" [ref=e112] [cursor=pointer]:
+          - generic [ref=e113]: RPG 角色面板
+          - generic [ref=e114]: 角色属性、装备位、成长操作区。
+          - generic [ref=e115]: 页面模板
+        - button "SLG 主城总览 资源条、任务、建筑入口、部队入口。 页面模板" [ref=e116] [cursor=pointer]:
+          - generic [ref=e117]: SLG 主城总览
+          - generic [ref=e118]: 资源条、任务、建筑入口、部队入口。
+          - generic [ref=e119]: 页面模板
+        - button "休闲游戏大厅 适合合成、放置、轻竞技游戏的大厅模板。 页面模板" [ref=e120] [cursor=pointer]:
+          - generic [ref=e121]: 休闲游戏大厅
+          - generic [ref=e122]: 适合合成、放置、轻竞技游戏的大厅模板。
+          - generic [ref=e123]: 页面模板
+        - button "动作战斗 HUD 连击、技能、闪避、药剂操作布局。 页面模板" [ref=e124] [cursor=pointer]:
+          - generic [ref=e125]: 动作战斗 HUD
+          - generic [ref=e126]: 连击、技能、闪避、药剂操作布局。
+          - generic [ref=e127]: 页面模板
+        - button "模拟经营总览 营业指标、顾客反馈、经营页签。 页面模板" [ref=e128] [cursor=pointer]:
+          - generic [ref=e129]: 模拟经营总览
+          - generic [ref=e130]: 营业指标、顾客反馈、经营页签。
+          - generic [ref=e131]: 页面模板
+        - button "卡牌对战界面 敌我信息、能量条、手牌区。 页面模板" [ref=e132] [cursor=pointer]:
+          - generic [ref=e133]: 卡牌对战界面
+          - generic [ref=e134]: 敌我信息、能量条、手牌区。
+          - generic [ref=e135]: 页面模板
+        - button "射击战斗 HUD 生命、弹药、小地图、射击操作按钮。 页面模板" [ref=e136] [cursor=pointer]:
+          - generic [ref=e137]: 射击战斗 HUD
+          - generic [ref=e138]: 生命、弹药、小地图、射击操作按钮。
+          - generic [ref=e139]: 页面模板
+        - button "物品卡片 带标题、描述和按钮的基础物品卡片。 组件模板" [ref=e140] [cursor=pointer]:
+          - generic [ref=e141]: 物品卡片
+          - generic [ref=e142]: 带标题、描述和按钮的基础物品卡片。
+          - generic [ref=e143]: 组件模板
+        - button "任务卡片 适合任务列表、引导面板的条目卡片。 组件模板" [ref=e144] [cursor=pointer]:
+          - generic [ref=e145]: 任务卡片
+          - generic [ref=e146]: 适合任务列表、引导面板的条目卡片。
+          - generic [ref=e147]: 组件模板
+  - main [ref=e16]:
+    - generic [ref=e148]:
+      - strong [ref=e149]: 预览
+      - generic [ref=e150]:
+        - generic [ref=e151]: 项目：默认项目
+        - generic [ref=e152]: 界面：新界面
+        - generic [ref=e153]: 设备：手机竖屏 1080x1920
+        - generic [ref=e154]: 像素：390 x 844
+        - button "上移" [ref=e155] [cursor=pointer]
+        - button "下移" [ref=e156] [cursor=pointer]
+        - button "复制节点" [ref=e157] [cursor=pointer]
+        - button "删除节点" [ref=e158] [cursor=pointer]
+        - button "重置界面" [ref=e159] [cursor=pointer]
+        - button "撤销（0）" [disabled] [ref=e160] [cursor=pointer]
+        - button "重做（0）" [disabled] [ref=e161] [cursor=pointer]
+        - button "复制 JSON" [ref=e162] [cursor=pointer]
+        - button "资源库" [ref=e163] [cursor=pointer]
+    - generic [ref=e164]:
+      - strong [ref=e165]: 最近操作
+      - generic [ref=e167]: 当前界面还没有可撤销的操作。
+    - generic [ref=e170]:
+      - generic [ref=e172]: 新界面
+      - generic [ref=e173]:
+        - generic [ref=e174]: 这里是新界面的默认内容。
+        - button "开始编辑" [ref=e176] [cursor=pointer]
+  - complementary [ref=e21]:
+    - generic [ref=e22]:
+      - strong [ref=e23]: 界面信息
+      - generic [ref=e25]:
+        - generic [ref=e177]:
+          - generic [ref=e178]: 项目名称
+          - textbox "项目名称" [ref=e179]: 默认项目
+        - generic [ref=e180]:
+          - generic [ref=e181]: 界面名称
+          - textbox "界面名称" [ref=e182]: 新界面
+        - generic [ref=e183]:
+          - generic [ref=e184]: 界面标识
+          - textbox "界面标识" [ref=e185]: page_fa75657f
+        - generic [ref=e186]:
+          - generic [ref=e187]: 文档名称
+          - textbox "文档名称" [ref=e188]: 新界面
+        - generic [ref=e189]:
+          - generic [ref=e190]: 页面类型
+          - combobox "页面类型" [ref=e191]:
+            - option "移动端页面" [selected]
+            - option "全屏面板"
+            - option "弹窗页面"
+            - option "分页页面"
+            - option "列表详情页"
+        - generic [ref=e192]:
+          - generic [ref=e193]: 设备预设
+          - combobox "设备预设" [ref=e194]:
+            - option "手机竖屏 1080x1920" [selected]
+            - option "手机竖屏（长屏）"
+            - option "手机横屏"
+            - option "平板竖屏"
+            - option "PC 1366x768"
+            - option "PC 1920x1080"
+            - option "自定义像素"
+        - generic [ref=e195]:
+          - generic [ref=e196]:
+            - generic [ref=e197]: 预览宽度
+            - spinbutton "预览宽度" [disabled] [ref=e198]
+          - generic [ref=e199]:
+            - generic [ref=e200]: 预览高度
+            - spinbutton "预览高度" [disabled] [ref=e201]
+        - generic [ref=e202]: 切换到“自定义像素”后可手动输入宽高。
+        - generic [ref=e203]:
+          - generic [ref=e204]: 页面说明
+          - textbox "页面说明" [ref=e205]
+        - generic [ref=e206]:
+          - generic [ref=e207]: 主题名
+          - textbox "主题名" [ref=e208]: default_dark
+        - generic [ref=e209]:
+          - generic [ref=e210]: 文档版本：0.1.0
+          - generic [ref=e211]: 更新时间：2026/5/2 04:02:21
+    - generic [ref=e212]:
+      - strong [ref=e213]: 属性面板
+      - generic [ref=e215]:
+        - generic [ref=e216]:
+          - generic [ref=e217]: 当前节点
+          - generic [ref=e218]: "容器 #root"
+        - generic [ref=e219]:
+          - generic [ref=e220]: 通用属性
+          - generic [ref=e221]:
+            - generic [ref=e222]: 节点 ID
+            - textbox "节点 ID" [ref=e223]: root
+          - generic [ref=e224]:
+            - generic [ref=e225]: 调试名称
+            - textbox "调试名称" [ref=e226]
+        - generic [ref=e227]:
+          - generic [ref=e228]: 布局属性
+          - generic [ref=e229]:
+            - generic [ref=e230]: 布局模式
+            - combobox "布局模式" [ref=e231]:
+              - option "(空)"
+              - option "无"
+              - option "线性布局" [selected]
+              - option "相对布局"
+          - generic [ref=e232]:
+            - generic [ref=e233]: 线性方向
+            - combobox "线性方向" [ref=e234]:
+              - option "(空)"
+              - option "纵向" [selected]
+              - option "横向"
+          - generic [ref=e235]:
+            - generic [ref=e236]: 主轴对齐
+            - combobox "主轴对齐" [ref=e237]:
+              - option "(空)" [selected]
+              - option "起点"
+              - option "居中"
+              - option "两端对齐"
+              - option "环绕分布"
+              - option "终点"
+          - generic [ref=e238]:
+            - generic [ref=e239]: 交叉轴对齐
+            - combobox "交叉轴对齐" [ref=e240]:
+              - option "(空)" [selected]
+              - option "拉伸"
+              - option "起点"
+              - option "居中"
+              - option "终点"
+          - generic [ref=e241]:
+            - generic [ref=e242]: 布局间距
+            - spinbutton "布局间距" [ref=e243]: "12"
+        - generic [ref=e244]:
+          - generic [ref=e245]: 类型专属属性
+          - generic [ref=e246]:
+            - generic [ref=e247]: 点击行为
+            - textbox "点击行为" [ref=e248]
+        - generic [ref=e249]:
+          - generic [ref=e250]: 样式属性
+          - generic [ref=e251]:
+            - generic [ref=e252]: 宽度
+            - textbox "宽度" [ref=e253]: 100%
+          - generic [ref=e254]:
+            - generic [ref=e255]: 高度
+            - textbox "高度" [ref=e256]: 100%
+          - generic [ref=e257]:
+            - generic [ref=e258]: 背景色
+            - generic [ref=e259]:
+              - 'textbox "背景色 #111827" [ref=e260]': "#111827"
+              - textbox "#ffffff / rgba(...)" [ref=e261]: "#111827"
+          - generic [ref=e262]:
+            - generic [ref=e263]: 背景图
+            - textbox "背景图" [ref=e264]
+          - button "从资源库选择背景图" [ref=e265] [cursor=pointer]
+          - generic [ref=e266]:
+            - generic [ref=e267]: 背景图适配
+            - combobox "背景图适配" [ref=e268]:
+              - option "(空)" [selected]
+              - option "填充 cover"
+              - option "完整 contain"
+              - option "原始 auto"
+              - option "拉伸 100% 100%"
+          - generic [ref=e269]:
+            - generic [ref=e270]: 背景图重复
+            - combobox "背景图重复" [ref=e271]:
+              - option "(空)" [selected]
+              - option "不重复"
+              - option "重复"
+              - option "横向重复"
+              - option "纵向重复"
+          - generic [ref=e272]:
+            - generic [ref=e273]: 背景图位置
+            - textbox "背景图位置" [ref=e274]
+          - generic [ref=e275]:
+            - generic [ref=e276]: 文字颜色
+            - generic [ref=e277]:
+              - textbox "文字颜色" [ref=e278]: "#000000"
+              - textbox "#ffffff / rgba(...)" [ref=e279]
+          - generic [ref=e280]:
+            - generic [ref=e281]: 子项间距
+            - spinbutton "子项间距" [ref=e282]: "0"
+          - generic [ref=e283]:
+            - generic [ref=e284]: 内边距
+            - generic [ref=e285]:
+              - spinbutton "内边距 12 12 12" [ref=e286]: "12"
+              - spinbutton [ref=e287]: "12"
+              - spinbutton [ref=e288]: "12"
+              - spinbutton [ref=e289]: "12"
+          - generic [ref=e290]:
+            - generic [ref=e291]: 外边距
+            - generic [ref=e292]:
+              - spinbutton "外边距 0 0 0" [ref=e293]: "0"
+              - spinbutton [ref=e294]: "0"
+              - spinbutton [ref=e295]: "0"
+              - spinbutton [ref=e296]: "0"
+          - generic [ref=e297]:
+            - generic [ref=e298]: 圆角
+            - spinbutton "圆角" [ref=e299]: "0"
+          - generic [ref=e300]:
+            - generic [ref=e301]: 边框宽度
+            - spinbutton "边框宽度" [ref=e302]: "0"
+          - generic [ref=e303]:
+            - generic [ref=e304]: 边框颜色
+            - generic [ref=e305]:
+              - textbox "边框颜色" [ref=e306]: "#000000"
+              - textbox "#ffffff / rgba(...)" [ref=e307]
+          - generic [ref=e308]:
+            - generic [ref=e309]: 主轴方向
+            - combobox "主轴方向" [ref=e310]:
+              - option "(空)"
+              - option "横向"
+              - option "纵向" [selected]
+          - generic [ref=e311]:
+            - generic [ref=e312]: 主轴对齐
+            - combobox "主轴对齐" [ref=e313]:
+              - option "(空)" [selected]
+              - option "起点"
+              - option "居中"
+              - option "两端对齐"
+              - option "环绕分布"
+              - option "终点"
+          - generic [ref=e314]:
+            - generic [ref=e315]: 交叉轴对齐
+            - combobox "交叉轴对齐" [ref=e316]:
+              - option "(空)" [selected]
+              - option "拉伸"
+              - option "起点"
+              - option "居中"
+              - option "终点"
+          - generic [ref=e317]:
+            - generic [ref=e318]: 溢出处理
+            - combobox "溢出处理" [ref=e319]:
+              - option "(空)" [selected]
+              - option "可见"
+              - option "隐藏"
+              - option "滚动"
+          - generic [ref=e320]:
+            - generic [ref=e321]: 字号
+            - spinbutton "字号" [ref=e322]: "14"
+          - generic [ref=e323]:
+            - generic [ref=e324]: 字重
+            - spinbutton "字重" [ref=e325]: "400"
+          - generic [ref=e326]:
+            - generic [ref=e327]: 文本对齐
+            - combobox "文本对齐" [ref=e328]:
+              - option "(空)" [selected]
+              - option "左对齐"
+              - option "居中"
+              - option "右对齐"
+        - generic [ref=e329]:
+          - generic [ref=e330]: 导入 / 导出
+          - generic [ref=e331]:
+            - generic [ref=e332]: 导入 JSON
+            - textbox "导入 JSON" [ref=e333]
+          - generic [ref=e334]:
+            - button "应用导入" [ref=e335] [cursor=pointer]
+            - button "刷新 Lua" [ref=e336] [cursor=pointer]
+          - generic [ref=e337]:
+            - generic [ref=e338]: 导出 JSON
+            - textbox "导出 JSON" [ref=e339]: "{ \"version\": \"0.1.0\", \"meta\": { \"id\": \"doc_9ac360e6\", \"name\": \"新界面\", \"createdAt\": \"2026-05-01T20:02:21.281Z\", \"updatedAt\": \"2026-05-01T20:02:21.281Z\" }, \"page\": { \"id\": \"page_fa75657f\", \"name\": \"新界面\", \"shell\": \"mobile_app\", \"devicePreset\": \"phone_portrait_1080x1920\" }, \"theme\": \"default_dark\", \"root\": { \"id\": \"root\", \"type\": \"Panel\", \"props\": {}, \"layout\": { \"mode\": \"linear\", \"orientation\": \"column\", \"gap\": 12 }, \"style\": { \"width\": \"100%\", \"height\": \"100%\", \"flexDirection\": \"column\", \"background\": \"#111827\", \"padding\": 12 }, \"children\": [ { \"id\": \"header\", \"type\": \"Panel\", \"props\": {}, \"layout\": { \"mode\": \"linear\", \"orientation\": \"row\", \"alignItems\": \"center\", \"justifyContent\": \"space-between\", \"gap\": 8 }, \"style\": { \"width\": \"100%\", \"minHeight\": 56, \"padding\": 12, \"background\": \"#1f2937\", \"borderRadius\": 10 }, \"children\": [ { \"id\": \"title\", \"type\": \"Text\", \"props\": { \"text\": \"新界面\" }, \"style\": { \"color\": \"#f9fafb\", \"fontSize\": 18, \"fontWeight\": 700 } } ] }, { \"id\": \"content\", \"type\": \"Panel\", \"props\": {}, \"layout\": { \"mode\": \"linear\", \"orientation\": \"column\", \"gap\": 12 }, \"style\": { \"width\": \"100%\", \"background\": \"#0f172a\", \"borderRadius\": 10, \"padding\": 12, \"gap\": 12 }, \"children\": [ { \"id\": \"intro_text\", \"type\": \"Text\", \"props\": { \"text\": \"这里是新界面的默认内容。\" }, \"style\": { \"color\": \"#cbd5e1\", \"fontSize\": 14 } }, { \"id\": \"action_button\", \"type\": \"Button\", \"props\": { \"text\": \"开始编辑\" }, \"actions\": { \"onClick\": \"StartEdit\" }, \"style\": { \"width\": 120, \"height\": 36, \"background\": \"#4f46e5\", \"color\": \"#ffffff\", \"borderRadius\": 8, \"padding\": 10 } } ] } ] } }"
+          - generic [ref=e340]:
+            - generic [ref=e341]: 导出 Lua
+            - textbox "导出 Lua" [ref=e342]: "-- Generated by layout-editor local UI = require(\"urhox-libs/UI\") return UI.Panel { id = \"root\", width = \"100%\", height = \"100%\", flexDirection = \"column\", background = \"#111827\", padding = 12, children = { UI.Panel { id = \"header\", width = \"100%\", minHeight = 56, padding = 12, background = \"#1f2937\", borderRadius = 10, children = { UI.Text { id = \"title\", text = \"新界面\", color = \"#f9fafb\", fontSize = 18, fontWeight = 700, }, }, }, UI.Panel { id = \"content\", width = \"100%\", background = \"#0f172a\", borderRadius = 10, padding = 12, gap = 12, children = { UI.Text { id = \"intro_text\", text = \"这里是新界面的默认内容。\", color = \"#cbd5e1\", fontSize = 14, }, UI.Button { id = \"action_button\", text = \"开始编辑\", width = 120, height = 36, background = \"#4f46e5\", color = \"#ffffff\", borderRadius = 8, padding = 10, -- actions -- onClick: StartEdit }, }, }, }, }"

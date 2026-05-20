@@ -1,0 +1,26 @@
+﻿{
+  "$id": "$01KQBMBBX77V1S14FADS8VEFQW",
+  "$type": "GameCore.ItemSystem.Data.GameDataItemMod",
+  "CanAbsorb": false,
+  "CanDrop": true,
+  "CanSell": true,
+  "CanStack": false,
+  "Categories": [],
+  "Description": {
+    "Key": "item_wooden_sword_desc"
+  },
+  "DisplayName": {
+    "Key": "item_wooden_sword_name"
+  },
+  "Filter": [],
+  "KillOnDepleted": true,
+  "Level": 1,
+  "Modifications": {},
+  "Name": "新手木剑",
+  "Quality": 0,
+  "RemoveOnDrop": false,
+  "Requirements": [],
+  "StackMax": 1,
+  "StackStart": 1,
+  "Unit": "$GameDataUnit.木剑单位"
+}

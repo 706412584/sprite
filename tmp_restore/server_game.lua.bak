@@ -1,0 +1,379 @@
+-- ============================================================================
+-- 《问道长生》统一游戏网关
+-- 职责：Action 路由 + Per-Player 请求队列（防竞态）
+-- 架构：handler 自注册，新增功能只需添加 handler_xxx.lua
+-- ============================================================================
+
+local Shared = require("network.shared")
+local EVENTS = Shared.EVENTS
+---@diagnostic disable-next-line: undefined-global
+local cjson  = cjson
+
+local M = {}
+
+-- ============================================================================
+-- 宗门贡献 post-action hook（集中式，避免侵入各 handler）
+-- ============================================================================
+
+local DataSect   = require("data_sect")
+local ServerSect = require("network.server_sect")
+local GameServer = require("game_server")
+
+--- Action → 贡献 yield key 映射（仅列出需要产贡献的 action）
+--- condField: 需额外判断 respData 中某字段为 true 才生效
+local CONTRIB_MAP = {
+    explore_settle      = { yieldKey = "explore_victory", condField = "win" },
+    alchemy_craft       = { yieldKey = "alchemy_craft" },
+    advance_sub         = { yieldKey = "advance_sub" },
+    tribulation_attempt = { yieldKey = "tribulation",    condField = "success" },
+    dao_meditate        = { yieldKey = "dao_meditate" },
+    boss_settle         = { yieldKey = "boss_kill" },
+    recharge_complete   = { yieldKey = "recharge" },
+    trial_challenge     = { yieldKey = "trial_win" },
+}
+
+--- 宗门任务可追踪的 action 集合
+local TASK_ACTIONS = {}
+for _, t in ipairs(DataSect.SECT_TASK_POOL) do
+    TASK_ACTIONS[t.action] = true
+end
+
+--- Post-action hook: 宗门贡献 + 宗门任务进度（合并读写避免竞态）
+---@param userId number
+---@param action string
+---@param respData table|nil
+---@param params table|nil 原始请求参数（含 playerKey）
+local function TryAwardSectContribution(userId, action, respData, params)
+    local mapping = CONTRIB_MAP[action]
+    local isTaskAction = TASK_ACTIONS[action]
+    if not mapping and not isTaskAction then return end
+
+    -- 条件字段检查（如 win/success 必须为 true）
+    if mapping and mapping.condField then
+        if not respData or not respData[mapping.condField] then return end
+    end
+
+    -- 异步读 playerData（合并贡献+任务进度）
+    local pKey = (params and params.playerKey and params.playerKey ~= "") and params.playerKey or GameServer.GetServerKey("player")
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local pd = scores and scores[pKey]
+            if type(pd) ~= "table" then return end
+            local sectId = pd.sectId or ""
+            if sectId == "" then return end
+
+            -- 1. 发放宗门贡献 + 个人贡献
+            if mapping then
+                local amount = DataSect.CONTRIBUTION_YIELDS[mapping.yieldKey]
+                if amount and amount > 0 then
+                    ServerSect.AddSectContribution(userId, sectId, amount, pKey)
+                    ServerSect.AddMemberContribution(userId, sectId, userId, amount, pKey)
+                end
+            end
+
+            -- 2. 推进宗门任务进度
+            if isTaskAction then
+                local today = os.date("%Y-%m-%d")
+                local st = pd.sectTasks
+                if st and st.date == today and st.tasks then
+                    local changed = false
+                    for _, task in ipairs(st.tasks) do
+                        if task.action == action and not task.claimed and task.progress < task.target then
+                            task.progress = task.progress + 1
+                            changed = true
+                        end
+                    end
+                    if changed then
+                        serverCloud:Set(userId, pKey, pd, {
+                            ok = function()
+                                print("[ServerGame] 宗门任务进度更新 uid=" .. tostring(userId) .. " action=" .. action)
+                            end,
+                            error = function() end,
+                        })
+                    end
+                end
+            end
+        end,
+        error = function() end,
+    })
+end
+
+-- ============================================================================
+-- Handler 注册
+-- ============================================================================
+
+---@type table<string, fun(userId: number, params: table, reply: fun(ok: boolean, data: table|nil, sync: table|nil))>
+local handlers_ = {}
+
+-- Handler 模块列表（每个模块导出 Actions 表）
+local handlerModules = {
+    require("network.handler_currency"),
+    require("network.handler_alchemy"),
+    require("network.handler_explore"),
+    require("network.handler_cultivation"),
+    require("network.handler_pet"),
+    -- 阶段三 P0.5: GameOps 迁移新增
+    require("network.handler_dao"),
+    require("network.handler_skill"),
+    require("network.handler_artifact"),
+    require("network.handler_equip"),
+    require("network.handler_items"),
+    require("network.handler_trial"),
+    require("network.handler_dao_trial"),
+    require("network.handler_quest"),
+    require("network.handler_boss"),
+    require("network.handler_rebirth"),
+    require("network.handler_signin"),
+    require("network.handler_gift"),
+    require("network.handler_recharge"),
+    require("network.handler_monthcard"),
+    require("network.handler_vip"),
+    require("network.handler_gacha"),
+    require("network.handler_battlepass"),
+    require("network.handler_account"),
+    require("network.handler_gm"),
+    require("network.handler_cdk"),
+    require("network.handler_ad"),
+    require("network.handler_character"),
+}
+
+-- 自动注册所有 handler
+for _, mod in ipairs(handlerModules) do
+    if mod.Actions then
+        for action, fn in pairs(mod.Actions) do
+            if handlers_[action] then
+                print("[ServerGame] 警告: Action '" .. action .. "' 重复注册，将被覆盖")
+            end
+            handlers_[action] = fn
+        end
+    end
+end
+
+-- ============================================================================
+-- Per-Player 请求队列（防读-改-写竞态）
+-- ============================================================================
+
+local QUEUE_SAFETY_TIMEOUT = 30   -- 安全超时（秒）：handler 未 reply 则强制推进队列
+
+---@type table<number, { queue: table[], processing: boolean, startTime: number|nil, currentAction: string|nil }>
+local playerQueues_ = {}
+
+--- 获取或创建玩家队列
+---@param userId number
+---@return table
+local function GetQueue(userId)
+    if not playerQueues_[userId] then
+        playerQueues_[userId] = { queue = {}, processing = false }
+    end
+    return playerQueues_[userId]
+end
+
+--- 处理队列中的下一个请求
+---@param userId number
+local function ProcessNext(userId)
+    local pq = playerQueues_[userId]
+    if not pq or #pq.queue == 0 then
+        if pq then
+            pq.processing = false
+            pq.startTime = nil
+            pq.currentAction = nil
+        end
+        return
+    end
+
+    pq.processing = true
+    pq.startTime = os.clock()
+    local req = table.remove(pq.queue, 1)
+    pq.currentAction = req.action
+
+    local handler = handlers_[req.action]
+    if not handler then
+        print("[ServerGame] 未知 Action: " .. req.action)
+        local replyOk, replyErr = pcall(req.reply, false, { msg = "未知操作: " .. req.action })
+        if not replyOk then
+            print("[ServerGame] Reply 异常(未知Action): " .. tostring(replyErr))
+        end
+        ProcessNext(userId)
+        return
+    end
+
+    -- 调用 handler，传入 reply 回调
+    local replied = false
+    local function safeReply(ok, data, sync)
+        if replied then return end
+        replied = true
+        -- pcall 包裹 reply，防止 cjson.encode/SendToClient 异常阻塞队列
+        local replyOk, replyErr = pcall(req.reply, ok, data, sync)
+        if not replyOk then
+            print("[ServerGame] Reply 异常: " .. req.action .. " uid=" .. tostring(userId) .. " | " .. tostring(replyErr))
+        end
+        -- pcall 包裹宗门贡献 hook，防止异常阻塞队列
+        if ok then
+            local contribOk, contribErr = pcall(TryAwardSectContribution, userId, req.action, data, req.params)
+            if not contribOk then
+                print("[ServerGame] SectContrib 异常: " .. req.action .. " | " .. tostring(contribErr))
+            end
+        end
+        ProcessNext(userId)
+    end
+
+    --- 实际执行 handler（pcall 包裹）
+    local function execHandler()
+        local success, err = pcall(handler, userId, req.params, safeReply)
+        if not success then
+            print("[ServerGame] Handler 异常: " .. req.action .. " | " .. tostring(err))
+            if not replied then
+                safeReply(false, { msg = "服务器内部错误" })
+            end
+        end
+    end
+
+    -- GM 鉴权拦截：gm_ 前缀的 action 需验证 GM 权限
+    if req.action:sub(1, 3) == "gm_" then
+        local ServerOnline = require("network.server_online")
+        ServerOnline.CheckGMAuth(userId, function(isGM)
+            if not isGM then
+                print("[ServerGame] GM 鉴权失败: uid=" .. tostring(userId) .. " action=" .. req.action)
+                safeReply(false, { msg = "无GM权限" })
+                return
+            end
+            execHandler()
+        end)
+        return  -- 异步鉴权，不走下面的同步路径
+    end
+
+    execHandler()
+end
+
+--- 入队请求
+---@param userId number
+---@param action string
+---@param params table
+---@param replyFn fun(ok: boolean, data: table|nil, sync: table|nil)
+local function Enqueue(userId, action, params, replyFn)
+    local pq = GetQueue(userId)
+    table.insert(pq.queue, {
+        action = action,
+        params = params,
+        reply  = replyFn,
+    })
+
+    if not pq.processing then
+        ProcessNext(userId)
+    end
+end
+
+-- ============================================================================
+-- 依赖注入
+-- ============================================================================
+
+local deps_ = nil
+
+---@param deps table { connections, connUserIds, userIdToConn, SendToClient }
+function M.Init(deps)
+    deps_ = deps
+
+    -- 初始化所有 handler 模块
+    for _, mod in ipairs(handlerModules) do
+        if mod.Init then
+            mod.Init(deps)
+        end
+    end
+
+    local actionCount = 0
+    for _ in pairs(handlers_) do actionCount = actionCount + 1 end
+    print("[ServerGame] 游戏网关初始化完成，已注册 " .. actionCount .. " 个 Action")
+end
+
+-- ============================================================================
+-- 统一入口（由 server_main.lua 调用）
+-- ============================================================================
+
+---@param userId number
+---@param eventData any
+function M.HandleGameOp(userId, eventData)
+    local action = eventData["Action"]:GetString()
+    local paramsStr = eventData["Params"]:GetString()
+    local reqId = eventData["ReqId"] and eventData["ReqId"]:GetInt() or 0
+
+    local ok, params = pcall(cjson.decode, paramsStr)
+    if not ok then
+        print("[ServerGame] Params JSON 解析失败: " .. action)
+        -- 直接回复错误
+        local data = VariantMap()
+        data["Action"]  = Variant(action)
+        data["Ok"]      = Variant(false)
+        data["ReqId"]   = Variant(reqId)
+        data["Data"]    = Variant(cjson.encode({ msg = "参数格式错误" }))
+        deps_.SendToClient(userId, EVENTS.GAME_OP_RESP, data)
+        return
+    end
+
+    -- 构造 reply 函数
+    local function replyFn(ok2, respData, sync)
+        local vm = VariantMap()
+        vm["Action"] = Variant(action)
+        vm["Ok"]     = Variant(ok2)
+        vm["ReqId"]  = Variant(reqId)
+        local dataJson = cjson.encode(respData or {})
+        vm["Data"]   = Variant(dataJson)
+        local syncJson = ""
+        if sync then
+            syncJson = cjson.encode(sync)
+            vm["Sync"] = Variant(syncJson)
+        end
+        -- 64KB WebSocket 上限监控
+        local totalSize = #dataJson + #syncJson
+        if totalSize > 50000 then
+            print("[ServerGame] WARNING: reply payload=" .. totalSize
+                .. " bytes (接近64KB上限) action=" .. action
+                .. " uid=" .. tostring(userId)
+                .. " dataLen=" .. #dataJson .. " syncLen=" .. #syncJson)
+        end
+        deps_.SendToClient(userId, EVENTS.GAME_OP_RESP, vm)
+    end
+
+    Enqueue(userId, action, params, replyFn)
+end
+
+--- 清理玩家队列（断线时调用）
+---@param userId number
+function M.CleanupPlayer(userId)
+    local pq = playerQueues_[userId]
+    if pq and pq.processing then
+        print("[ServerGame] 清理卡死队列: uid=" .. tostring(userId)
+            .. " action=" .. tostring(pq.currentAction)
+            .. " queueLen=" .. #pq.queue)
+    end
+    playerQueues_[userId] = nil
+end
+
+-- ============================================================================
+-- 安全超时：防止 handler 异步回调丢失导致队列永久阻塞
+-- 由 server_main.lua 的 HandleUpdate 调用
+-- ============================================================================
+
+function M.Update(dt)
+    local now = os.clock()
+    for userId, pq in pairs(playerQueues_) do
+        if pq.processing and pq.startTime then
+            local elapsed = now - pq.startTime
+            if elapsed >= QUEUE_SAFETY_TIMEOUT then
+                print("[ServerGame] 安全超时触发: uid=" .. tostring(userId)
+                    .. " action=" .. tostring(pq.currentAction)
+                    .. " elapsed=" .. string.format("%.1f", elapsed) .. "s"
+                    .. " queueLen=" .. #pq.queue)
+                -- 强制重置队列状态，推进下一个请求
+                pq.processing = false
+                pq.startTime = nil
+                pq.currentAction = nil
+                -- 尝试处理队列中的下一个请求
+                if #pq.queue > 0 then
+                    ProcessNext(userId)
+                end
+            end
+        end
+    end
+end
+
+return M

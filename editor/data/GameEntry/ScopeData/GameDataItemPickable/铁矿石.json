@@ -1,0 +1,24 @@
+﻿{
+  "$id": "$01KQBMBBX7EPJZMNSB24X0DXTX",
+  "$type": "GameCore.ItemSystem.Data.GameDataItemPickable",
+  "CanAbsorb": true,
+  "CanDrop": true,
+  "CanSell": true,
+  "CanStack": true,
+  "Categories": [],
+  "Description": {
+    "Key": "item_iron_ore_desc"
+  },
+  "DisplayName": {
+    "Key": "item_iron_ore_name"
+  },
+  "Filter": [],
+  "KillOnDepleted": true,
+  "Level": 1,
+  "Name": "铁矿石",
+  "Quality": 0,
+  "RemoveOnDrop": false,
+  "StackMax": 999,
+  "StackStart": 1,
+  "Unit": "$GameDataUnit.矿石单位"
+}

@@ -1,0 +1,23 @@
+<technique vs="PBRPiplineVS" ps="ShaderLab/Model/DefaultPS" shaderlab="Model/Default.shader" canbetransparent="true" shadingmodel="pbs">
+  <pass name="litalpha" vsdefines="AO" psdefines="PACKEDNORMAL AMBIENT AO PBR_NOTEXTURE" blend="alpha" srgbsoftresolve="true" />
+  <pass name="shadow" vs="Shadow" ps="Shadow" />
+  <pass name="innerstroke" vs="Stroke/GameStroke" ps="Stroke/GameStroke" depthtest="lessequal" depthwrite="false" />
+  <pass name="outstroke" vs="Stroke/GameStroke" ps="Stroke/GameStroke" depthtest="lessequal" depthwrite="false" />
+  <pass name="material" psdefines="MATERIAL PBR_NOTEXTURE" depthtest="equal" depthwrite="false" />
+  <pass name="planershadow" vs="PlanerShadow" ps="PlanerShadow" blend="alpha" depthwrite="false" depthtest="less" />
+  <pass name="outsurface" vs="Highlight" ps="Highlight" blend="alpha" depthtest="equal" depthwrite="false" />
+  <pass name="xray" vs="PBRPiplineVS" ps="ShaderLab/Model/XRayPS" depthtest="greater" depthwrite="false" />
+  <!-- 通用参数 -->
+  <parameter name="ColorFactor" value="1 1 1 1" />
+  <parameter name="MetallicFactor" value="1" />
+  <parameter name="RoughnessFactor" value="1" />
+  <parameter name="Anisotropy" value="1" />
+  <parameter name="TintColor" value="0 0 0 0" /> 
+  <!-- PBR材质参数 -->
+  <parameter name="MetalMul0or1" value="1" />
+  <parameter name="Emissive_Mul" value="0" />
+  <parameter name="Color_Emissive" value="0 0 0 0" />
+  <!-- 丝绸参数 -->
+  <parameter name="Fraction" value="-0.5" />
+  <parameter name="Finier" value="2.0" />
+</technique>

@@ -1,0 +1,24 @@
+﻿{
+  "$id": "$01KQBMBBX752JV1SJZTTFN806K",
+  "$type": "GameCore.ItemSystem.Data.GameDataItemPickable",
+  "CanAbsorb": true,
+  "CanDrop": true,
+  "CanSell": true,
+  "CanStack": true,
+  "Categories": [],
+  "Description": {
+    "Key": "item_juqidan_desc"
+  },
+  "DisplayName": {
+    "Key": "item_juqidan_name"
+  },
+  "Filter": [],
+  "KillOnDepleted": true,
+  "Level": 1,
+  "Name": "聚气丹",
+  "Quality": 0,
+  "RemoveOnDrop": false,
+  "StackMax": 99,
+  "StackStart": 1,
+  "Unit": "$GameDataUnit.丹药单位"
+}

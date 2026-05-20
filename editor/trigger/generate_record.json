@@ -1,0 +1,42 @@
+{
+  "Date": "2026-04-29 11:26:59.561",
+  "LastModifiedTimestamp": 1777433219561,
+  "Libs": {
+    "global_default": {
+      "LastModifiedTimestamp": 1777263014568,
+      "Path": "D:\\360downloads\\\u661F\u706B\u7F16\u8F91\u5668\\Update\\editor-alpha.spark.xd.com\\Res\\_m\\maps\\global_default\\207\\global_default"
+    },
+    "script": {
+      "LastModifiedTimestamp": 0,
+      "Path": "D:/User/70641/Documents/SCE Projects/game_entry_0"
+    },
+    "lib_game_options": {
+      "LastModifiedTimestamp": 0,
+      "Path": "D:\\360downloads\\\u661F\u706B\u7F16\u8F91\u5668\\Update\\editor-alpha.spark.xd.com\\Res\\_m\\maps\\script_libs\\lib_game_options\\203\\lib_game_options"
+    },
+    "gamesystemui": {
+      "LastModifiedTimestamp": 1774938975349,
+      "Path": "D:\\360downloads\\\u661F\u706B\u7F16\u8F91\u5668\\Update\\editor-alpha.spark.xd.com\\Res\\_m\\maps\\gamesystemui\\12\\GameSystemUI"
+    },
+    "gamesparkcore": {
+      "LastModifiedTimestamp": 1776073774387,
+      "Path": "D:\\360downloads\\\u661F\u706B\u7F16\u8F91\u5668\\Update\\editor-alpha.spark.xd.com\\Res\\_m\\maps\\gamesparkcore\\5\\gamesparkcore"
+    },
+    "lib_backend_msg": {
+      "LastModifiedTimestamp": 0,
+      "Path": "D:\\360downloads\\\u661F\u706B\u7F16\u8F91\u5668\\Update\\editor-alpha.spark.xd.com\\Res\\_m\\maps\\script_libs\\lib_backend_msg\\14\\lib_backend_msg"
+    },
+    "smallcard_store": {
+      "LastModifiedTimestamp": 0,
+      "Path": "D:\\360downloads\\\u661F\u706B\u7F16\u8F91\u5668\\Update\\editor-alpha.spark.xd.com\\Res\\_m\\maps\\script_libs\\smallcard_store\\73\\smallcard_store"
+    },
+    "smallcard_inventory": {
+      "LastModifiedTimestamp": 0,
+      "Path": "D:\\360downloads\\\u661F\u706B\u7F16\u8F91\u5668\\Update\\editor-alpha.spark.xd.com\\Res\\_m\\maps\\script_libs\\smallcard_inventory\\207\\smallcard_inventory"
+    },
+    "defaultui": {
+      "LastModifiedTimestamp": 0,
+      "Path": "D:\\360downloads\\\u661F\u706B\u7F16\u8F91\u5668\\Update\\editor-alpha.spark.xd.com\\Res\\_m\\maps\\defaultui\\212\\defaultui"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+﻿{
+  "$id": "$01KQBMBBX7E70MTNM02C0HGV3D",
+  "$type": "GameCore.ItemSystem.Data.GameDataItemMod",
+  "CanAbsorb": false,
+  "CanDrop": true,
+  "CanSell": true,
+  "CanStack": false,
+  "Categories": [],
+  "Description": {
+    "Key": "item_cloth_armor_desc"
+  },
+  "DisplayName": {
+    "Key": "item_cloth_armor_name"
+  },
+  "Filter": [],
+  "KillOnDepleted": true,
+  "Level": 1,
+  "Modifications": {},
+  "Name": "布衣",
+  "Quality": 0,
+  "RemoveOnDrop": false,
+  "Requirements": [],
+  "StackMax": 1,
+  "StackStart": 1,
+  "Unit": "$GameDataUnit.布衣单位"
+}

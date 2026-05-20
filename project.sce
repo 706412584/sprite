@@ -1,0 +1,1 @@
+{"debug_settings":{"game_resolution_rate_index":2,"show_info_panel":false,"custom_resolution":[20,9]}}

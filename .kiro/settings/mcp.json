@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "trigger-editor": {
+      "url": "http://127.0.0.1:8765/",
+      "transport": "http",
+      "disabled": false,
+      "autoApprove": [
+        "trigger_list_files",
+        "trigger_get_file"
+      ],
+      "description": "SCE 触发器编辑器 MCP - 用于操作触发器系统"
+    }
+  }
+}

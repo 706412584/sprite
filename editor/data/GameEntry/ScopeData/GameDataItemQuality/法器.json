@@ -1,0 +1,11 @@
+﻿{
+  "$id": "$01KQBMBBX76C53NEAYT0M9BJ7K",
+  "$type": "GameCore.ItemSystem.Data.GameDataItemQuality",
+  "Color": {
+    "A": 1.0,
+    "B": 0.0,
+    "G": 1.0,
+    "R": 0.0
+  },
+  "Name": "法器"
+}

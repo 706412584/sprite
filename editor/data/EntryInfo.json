@@ -1,0 +1,17 @@
+﻿{
+  "$GameEntry.ScopeData.GameDataGameMode.MapGameMode": {
+    "Root": {
+      "Name": "当前地图游戏模式"
+    }
+  },
+  "$GameEntry.ScopeData.GameDataPlayerSettings.PlayerSettings": {
+    "Root": {
+      "Name": "地图玩家队伍设置"
+    }
+  },
+  "$GameEntry.ScopeData.GameDataScene.new_scene": {
+    "Root": {
+      "Name": "默认场景"
+    }
+  }
+}

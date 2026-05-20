@@ -1,0 +1,6 @@
+ui/font/NoWarRounded
+ui/font/NotoEmoji
+ui/font/msyh
+ui/font/noteemoji
+ui/font/regular
+ui/font/seguiemj

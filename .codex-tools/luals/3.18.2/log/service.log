@@ -1,0 +1,34 @@
+[20:43:05.453][info] [#0:D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2\main.lua:71]: Lua Lsp startup, root: 	D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2
+[20:43:05.453][info] [#0:D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2\main.lua:72]: ROOT:	D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2
+[20:43:05.453][info] [#0:D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2\main.lua:73]: LOGPATH:	D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2/log
+[20:43:05.453][info] [#0:D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2\main.lua:74]: METAPATH:	D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2/meta
+[20:43:05.453][info] [#0:D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2\main.lua:75]: VERSION:	3.18.2-dev
+[20:43:05.487][info] [#0:script\language.lua:137]: VSC language: en-us
+[20:43:05.487][info] [#0:script\language.lua:138]: LS  language: en-us
+[20:43:05.488][info] [#0:script\client.lua:657]: Client init	{
+  capabilities = {
+    textDocument = {
+      completion = {
+        completionItem = {
+          tagSupport = {
+            valueSet = { 1, 2 }
+          }
+        }
+      }
+    },
+    workspace = {
+      configuration = true
+    }
+  },
+  initializationOptions = {
+    changeConfiguration = true,
+    trustByClient = true,
+    useSemanticByRange = true,
+    viewDocument = true
+  },
+  rootUri = "file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/tools/layout-editor/mcp-export-smoke/layout_project/lua"
+}
+[20:43:05.488][info] [#0:script\language.lua:137]: VSC language: en-us
+[20:43:05.488][info] [#0:script\language.lua:138]: LS  language: en-us
+[20:43:05.488][info] [#0:script\workspace\workspace.lua:38]: Workspace init root: 	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/tools/layout-editor/mcp-export-smoke/layout_project/lua
+[20:43:05.488][info] [#0:script\workspace\workspace.lua:42]: Log path: 	D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2/log/file_d%3A_User_70641_Documents_SCE%20Projects_game_entry_0_tools_layout-editor_mcp-export-smoke_layout_project_lua.log

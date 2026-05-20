@@ -1,0 +1,16 @@
+﻿{
+  "$id": "$01KK11M1W4BC6GPW8T03FV5E3S",
+  "Root": {
+    "$type": "GameCore.GameSystem.Data.GameDataGameMode",
+    "DefaultScene": "$GameDataScene.new_scene.Root",
+    "DisplayInfo": "$01KFHX6W527T0K2D074Z8D3QB8.Root" /*$gamesparkcore.ScopeData.GameDataRule.DefaultDisplayInfo.Root*/,
+    "ExperienceGrant": "$01KFHX6W524XH9Y3GFKGXHYA8X.Root" /*$gamesparkcore.ScopeData.GameDataRule.DefaultExperienceGrant.Root*/,
+    "Gameplay": "$01KFHYDMVE43GSGM4GKNGF12KD.Root" /*$gamesparkcore.ScopeData.GameDataGameplay.Default.Root*/,
+    "GameUI": "$01KG1TV3DR4H6MP5GQB38NRJAK.Root" /*$gamesparkcore.ScopeData.GameDataGameUI.Default.Root*/,
+    "Name": "当前地图游戏模式",
+    "PlayerSettings": "$GameDataPlayerSettings.PlayerSettings.Root",
+    "SceneList": [
+      "$GameDataScene.new_scene.Root"
+    ]
+  }
+}

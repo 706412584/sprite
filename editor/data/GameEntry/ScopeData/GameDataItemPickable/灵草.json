@@ -1,0 +1,24 @@
+﻿{
+  "$id": "$01KQBMBBX7NZNF3SJ9MHQ6BVDN",
+  "$type": "GameCore.ItemSystem.Data.GameDataItemPickable",
+  "CanAbsorb": true,
+  "CanDrop": true,
+  "CanSell": true,
+  "CanStack": true,
+  "Categories": [],
+  "Description": {
+    "Key": "item_lingcao_desc"
+  },
+  "DisplayName": {
+    "Key": "item_lingcao_name"
+  },
+  "Filter": [],
+  "KillOnDepleted": true,
+  "Level": 1,
+  "Name": "灵草",
+  "Quality": 0,
+  "RemoveOnDrop": false,
+  "StackMax": 999,
+  "StackStart": 1,
+  "Unit": "$GameDataUnit.灵草单位"
+}

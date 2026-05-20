@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<node>
+	<component type="Zone">
+		<attribute name="Bounding Box Min" value="-100000.00 -100000.00 -100000.00" />
+		<attribute name="Bounding Box Max" value="100000.00 100000.00 100000.00" />
+		<attribute name="Ambient Color" value="0.00392157 0 0.0313726 1" />
+		<attribute name="Fog Color" value="0.141176 0.0117647 0.0196078 1" />
+		<attribute name="Depth Fog Density" value="1" />
+		<attribute name="Depth Fog Start" value="145000" />
+		<attribute name="Depth Fog End" value="260000" />
+		<attribute name="Depth Fog AutoCompute" value="false" />
+		<attribute name="Height Fog Density" value="0.7" />
+		<attribute name="Height Fog Falloff" value="0.12" />
+		<attribute name="Height Fog Height" value="-1100" />
+		<attribute name="Height Fog Enable" value="false" />
+		<attribute name="Env Spec Texture" value="TextureCube;Cube/Night/NightSpecularHDR.dds" />
+		<attribute name="Water Reflection Cube" value="TextureCube;Cube/Night/NightWaterReflection.dds" />
+		<attribute name="Vignette Texture" value="Texture2D;Editor/Textures/Engine/Vignetting.png" />
+		<attribute name="Env texture diff intensity" value="0.1" />
+		<attribute name="Env texture spec intensity" value="0.3" />
+		<attribute name="Env Cube Follow Angle" value="44.6287" />
+		<attribute name="Bloom Threshold" value="0.18" />
+		<attribute name="Bloom Weight" value="0.3" />
+		<attribute name="SphericalHarmonicsL2" value="213 246 36 60 130 216 178 59 46 33 90 186 64 19 183 187 176 204 132 187 255 216 50 186 105 225 54 186 174 53 237 57 221 183 226 56 229 103 187 60 148 29 95 60 228 227 88 187 248 248 131 188 1 98 32 188 85 118 1 187 99 174 202 186 147 173 1 59 246 156 241 58 66 99 5 61 194 124 171 60 232 27 177 187 40 89 221 188 46 158 129 188 180 235 71 187 62 190 38 187 163 73 129 59 122 137 93 59" />
+		<attribute name="Role SphericalHarmonicsL2" value="213 246 36 60 130 216 178 59 46 33 90 186 64 19 183 187 176 204 132 187 255 216 50 186 105 225 54 186 174 53 237 57 221 183 226 56 229 103 187 60 148 29 95 60 228 227 88 187 248 248 131 188 1 98 32 188 85 118 1 187 99 174 202 186 147 173 1 59 246 156 241 58 66 99 5 61 194 124 171 60 232 27 177 187 40 89 221 188 46 158 129 188 180 235 71 187 62 190 38 187 163 73 129 59 122 137 93 59" />
+		<attribute name="Role SphericalHarmonicsL2 Intensity" value="6" />
+		<attribute name="Role SphericalHarmonicsL2 Source" value="Cube/Night/NightDiffuseHDR.dds" />
+		<attribute name="Role Spec Texture" value="TextureCube;Cube/Night/NightSpecularHDR.dds" />
+		<attribute name="Role Spec Intensity" value="6" />
+		<attribute name="Using Water Reflection Param" value="true" />
+		<attribute name="Vignette Intensity" value="0.55" />
+	</component>
+	<node>
+		<attribute name="Is Enabled" value="true" />
+		<attribute name="Name" value="Directional Light" />
+		<attribute name="Tags" />
+		<attribute name="Position" value="0.00 0.00 0.00" />
+		<attribute name="Rotation" value="0.38268341916037 -0.73910362062523 0.55432773580112 0" />
+		<attribute name="Scale" value="1.00 1.00 1.00" />
+		<attribute name="Variables" />
+		<component type="Light">
+			<attribute name="Light Type" value="Directional" />
+			<attribute name="Color" value="0.831373 0.976471 1 1" />
+			<attribute name="Brightness Multiplier" value="0.55" />
+			<attribute name="Use Temperature" value="true" />
+			<attribute name="Range" value="0" />
+			<attribute name="Cast Shadows" value="true" />
+			<attribute name="Shadow Intensity" value="0.05" />
+			<attribute name="Shadow Resolution" value="0.6" />
+			<attribute name="CSM Splits" value="1000 5000 20000 100000" />
+			<attribute name="CSM Fade Start" value="0.8" />
+			<attribute name="Depth Constant Bias" value="0.00025" />
+			<attribute name="Depth Slope Bias" value="0.5" />
+			<attribute name="Max Extrusion" value="500000" />
+			<attribute name="Ignore Ray" value="true" />
+			<attribute name="Auto Shadow Cascade" value="true" />
+			<attribute name="Num Auto Shadow Cascade" value="4" />
+			<attribute name="Absorption Intensity" value="0.1" />
+			<attribute name="Volumetric Blend" value="1" />
+		</component>
+	</node>
+</node>

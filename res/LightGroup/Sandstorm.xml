@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<node>
+	<component type="Zone">
+		<attribute name="Bounding Box Min" value="-100000.00 -100000.00 -100000.00" />
+		<attribute name="Bounding Box Max" value="100000.00 100000.00 100000.00" />
+		<attribute name="Ambient Color" value="0.05 0.01641 0 1" />
+		<attribute name="Fog Color" value="0.301961 0.168627 0.0901961 1" />
+		<attribute name="Depth Fog Density" value="1" />
+		<attribute name="Depth Fog Start" value="130000" />
+		<attribute name="Depth Fog End" value="330000" />
+		<attribute name="Depth Fog AutoCompute" value="false" />
+		<attribute name="Height Fog Density" value="1" />
+		<attribute name="Height Fog Falloff" value="0.06" />
+		<attribute name="Height Fog Height" value="-2500" />
+		<attribute name="Height Fog Enable" value="false" />
+		<attribute name="Env Spec Texture" value="TextureCube;Cube/Dusk/DuskSpecularHDR.dds" />
+		<attribute name="Water Reflection Cube" value="TextureCube;Cube/Day/DayWaterReflection.dds" />
+		<attribute name="Vignette Texture" value="Texture2D;Editor/Textures/Engine/Vignetting.png" />
+		<attribute name="Env texture diff intensity" value="1" />
+		<attribute name="Env texture spec intensity" value="1" />
+		<attribute name="Env Cube Follow Angle" value="63.9665" />
+		<attribute name="Bloom Threshold" value="0.27" />
+		<attribute name="Bloom Weight" value="0.2" />
+		<attribute name="SphericalHarmonicsL2" value="43 177 9 62 20 148 18 61 128 27 98 58 125 232 0 190 103 242 240 188 72 21 5 187 123 131 247 187 84 219 223 187 246 88 10 61 187 214 196 61 2 44 185 60 68 192 152 59 103 219 136 189 139 139 89 188 83 90 25 187 160 82 163 187 20 217 20 188 169 219 149 60 204 124 3 62 201 223 138 61 156 180 41 188 199 137 17 189 6 4 70 188 194 213 47 188 72 44 36 187 82 112 173 58 156 91 160 59" />
+		<attribute name="Role SphericalHarmonicsL2" value="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" />
+		<attribute name="Using Water Reflection Param" value="true" />
+		<attribute name="Water Reflection Intensity" value="1" />
+		<attribute name="Using Vignette" value="true" />
+		<attribute name="Vignette Intensity" value="0.18" />
+	</component>
+	<node>
+		<attribute name="Is Enabled" value="true" />
+		<attribute name="Name" value="Directional Light" />
+		<attribute name="Tags" />
+		<attribute name="Position" value="0.00 0.00 0.00" />
+		<attribute name="Rotation" value="0.38268341916037 -0.73910362062523 0.55432773580112 0" />
+		<attribute name="Scale" value="1.00 1.00 1.00" />
+		<attribute name="Variables" />
+		<component type="Light">
+			<attribute name="Light Type" value="Directional" />
+			<attribute name="Color" value="1 0.79222 0.6 1" />
+			<attribute name="Brightness Multiplier" value="6" />
+			<attribute name="Use Temperature" value="true" />
+			<attribute name="Range" value="0" />
+			<attribute name="Cast Shadows" value="true" />
+			<attribute name="Shadow Intensity" value="0.05" />
+			<attribute name="Shadow Resolution" value="0.6" />
+			<attribute name="CSM Splits" value="1000 5000 20000 100000" />
+			<attribute name="CSM Fade Start" value="0.8" />
+			<attribute name="Depth Constant Bias" value="0.00025" />
+			<attribute name="Depth Slope Bias" value="0.5" />
+			<attribute name="Max Extrusion" value="500000" />
+			<attribute name="Ignore Ray" value="true" />
+			<attribute name="Auto Shadow Cascade" value="true" />
+			<attribute name="Num Auto Shadow Cascade" value="4" />
+			<attribute name="Absorption Intensity" value="0.1" />
+			<attribute name="Volumetric Blend" value="1" />
+		</component>
+	</node>
+</node>

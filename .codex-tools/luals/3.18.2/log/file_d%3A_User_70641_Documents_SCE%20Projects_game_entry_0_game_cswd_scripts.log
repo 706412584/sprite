@@ -1,0 +1,404 @@
+[22:20:36.795][info] [#0:D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2\main.lua:71]: Lua Lsp startup, root: 	D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2
+[22:20:36.796][info] [#0:D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2\main.lua:72]: ROOT:	D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2
+[22:20:36.796][info] [#0:D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2\main.lua:73]: LOGPATH:	D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2/log
+[22:20:36.796][info] [#0:D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2\main.lua:74]: METAPATH:	D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2/meta
+[22:20:36.796][info] [#0:D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2\main.lua:75]: VERSION:	3.18.2-dev
+[22:20:36.833][info] [#0:script\language.lua:137]: VSC language: nil
+[22:20:36.833][info] [#0:script\language.lua:138]: LS  language: en-us
+[22:20:36.834][info] [#0:script\client.lua:657]: Client init	{
+  capabilities = {
+    textDocument = {
+      completion = {
+        completionItem = {
+          tagSupport = {
+            valueSet = { 1, 2 }
+          }
+        }
+      }
+    },
+    workspace = {
+      configuration = true
+    }
+  },
+  initializationOptions = {
+    changeConfiguration = true,
+    trustByClient = true,
+    useSemanticByRange = true,
+    viewDocument = true
+  },
+  rootUri = "file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts"
+}
+[22:20:36.834][info] [#0:script\language.lua:137]: VSC language: nil
+[22:20:36.834][info] [#0:script\language.lua:138]: LS  language: en-us
+[22:20:36.834][info] [#0:script\workspace\workspace.lua:38]: Workspace init root: 	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:36.834][info] [#0:script\workspace\workspace.lua:42]: Log path: 	D:/User/70641/Documents/SCE Projects/game_entry_0/.codex-tools/luals/3.18.2/log/file_d%3A_User_70641_Documents_SCE%20Projects_game_entry_0_game_cswd_scripts.log
+[22:20:36.861][info] [#0:script\workspace\workspace.lua:48]: Workspace create: 	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:36.862][warn] [#0:script\config\loader.lua:116]: No config?	nil
+[22:20:36.862][info] [#0:script\provider\provider.lua:56]: Load config from .luarc.json/.luarc.jsonc	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:36.863][info] [#0:script\provider\provider.lua:57]: {
+  ["$schema"] = "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+  completion = {
+    autoRequire = false
+  },
+  diagnostics = {
+    disable = { "lowercase-global" },
+    globals = { "tolua" },
+    groupSeverity = {
+      ambiguity = "Fallback",
+      strict = "Fallback",
+      strong = "Fallback"
+    },
+    neededFileStatus = {
+      ["undefined-field"] = "Any!"
+    },
+    severity = {
+      ["cast-local-type"] = "Hint",
+      ["circle-doc-class"] = "Error",
+      ["duplicate-set-field"] = "Hint",
+      ["empty-block"] = "Hint",
+      ["global-in-nil-env"] = "Warning",
+      ["inject-field"] = "Hint",
+      ["missing-parameter"] = "Error",
+      ["param-type-mismatch"] = "Warning",
+      ["redefined-local"] = "Error",
+      ["redundant-parameter"] = "Warning",
+      ["redundant-value"] = "Warning",
+      ["trailing-space"] = "Hint",
+      ["undefined-doc-class"] = "Error",
+      ["undefined-doc-name"] = "Error",
+      ["undefined-doc-param"] = "Error",
+      ["undefined-field"] = "Warning",
+      ["undefined-global"] = "Error",
+      ["unused-function"] = "Warning",
+      ["unused-local"] = "Hint"
+    }
+  },
+  emmyluaDir = "../.emmylua",
+  hint = {
+    enable = true,
+    setType = true
+  },
+  runtime = {
+    path = { "?.lua", "?/init.lua", "../?.lua", "../?/init.lua" },
+    special = {
+      tolua = "require"
+    },
+    version = "Lua 5.4"
+  },
+  type = {
+    castNumberToInteger = true,
+    castStringToEnum = true,
+    weakNilCheck = true,
+    weakUnionCheck = true
+  },
+  workspace = {
+    checkThirdParty = false,
+    library = { "../.emmylua", "../urhox-libs" }
+  }
+}
+[22:20:36.863][warn] [#0:script\config\loader.lua:116]: No config?	nil
+[22:20:36.863][info] [#0:script\provider\provider.lua:65]: Load config from client	fallback
+[22:20:36.863][info] [#0:script\provider\provider.lua:66]: nil
+[22:20:36.863][info] [#0:script\library.lua:216]: Init builtin library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:36.926][info] [#0:script\library.lua:216]: Init builtin library at:	nil
+[22:20:36.941][warn] [#0:script\config\loader.lua:116]: No config?	nil
+[22:20:36.941][info] [#0:script\provider\provider.lua:56]: Load config from .luarc.json/.luarc.jsonc	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:36.941][info] [#0:script\provider\provider.lua:57]: {
+  ["$schema"] = "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+  completion = {
+    autoRequire = false
+  },
+  diagnostics = {
+    disable = { "lowercase-global" },
+    globals = { "tolua" },
+    groupSeverity = {
+      ambiguity = "Fallback",
+      strict = "Fallback",
+      strong = "Fallback"
+    },
+    neededFileStatus = {
+      ["undefined-field"] = "Any!"
+    },
+    severity = {
+      ["cast-local-type"] = "Hint",
+      ["circle-doc-class"] = "Error",
+      ["duplicate-set-field"] = "Hint",
+      ["empty-block"] = "Hint",
+      ["global-in-nil-env"] = "Warning",
+      ["inject-field"] = "Hint",
+      ["missing-parameter"] = "Error",
+      ["param-type-mismatch"] = "Warning",
+      ["redefined-local"] = "Error",
+      ["redundant-parameter"] = "Warning",
+      ["redundant-value"] = "Warning",
+      ["trailing-space"] = "Hint",
+      ["undefined-doc-class"] = "Error",
+      ["undefined-doc-name"] = "Error",
+      ["undefined-doc-param"] = "Error",
+      ["undefined-field"] = "Warning",
+      ["undefined-global"] = "Error",
+      ["unused-function"] = "Warning",
+      ["unused-local"] = "Hint"
+    }
+  },
+  emmyluaDir = "../.emmylua",
+  hint = {
+    enable = true,
+    setType = true
+  },
+  runtime = {
+    path = { "?.lua", "?/init.lua", "../?.lua", "../?/init.lua" },
+    special = {
+      tolua = "require"
+    },
+    version = "Lua 5.4"
+  },
+  type = {
+    castNumberToInteger = true,
+    castStringToEnum = true,
+    weakNilCheck = true,
+    weakUnionCheck = true
+  },
+  workspace = {
+    checkThirdParty = false,
+    library = { "../.emmylua", "../urhox-libs" }
+  }
+}
+[22:20:36.942][warn] [#0:script\config\loader.lua:116]: No config?	nil
+[22:20:36.942][info] [#0:script\provider\provider.lua:65]: Load config from client	fallback
+[22:20:36.942][info] [#0:script\provider\provider.lua:66]: nil
+[22:20:36.942][info] [#0:script\workspace\workspace.lua:330]: Preload start:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:36.945][info] [#0:script\workspace\workspace.lua:336]: Scan files at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:36.956][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/coroutine.lua
+[22:20:36.957][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/builtin.lua
+[22:20:36.957][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/basic.lua
+[22:20:36.957][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/utf8.lua
+[22:20:36.957][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/table.lua
+[22:20:36.957][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/string.lua
+[22:20:36.957][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/debug.lua
+[22:20:36.957][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/package.lua
+[22:20:36.958][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/io.lua
+[22:20:36.958][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/math.lua
+[22:20:36.958][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/os.lua
+[22:20:36.958][info] [#0:script\workspace\workspace.lua:330]: Preload start:	<fallback>
+[22:20:36.959][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/coroutine.lua
+[22:20:36.960][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/builtin.lua
+[22:20:36.960][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/basic.lua
+[22:20:36.960][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/utf8.lua
+[22:20:36.960][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/table.lua
+[22:20:36.960][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/debug.lua
+[22:20:36.960][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/string.lua
+[22:20:36.961][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/package.lua
+[22:20:36.961][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/math.lua
+[22:20:36.961][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/io.lua
+[22:20:36.961][info] [#0:script\workspace\workspace.lua:359]: Scan library at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/os.lua
+[22:20:36.961][info] [#0:script\workspace\workspace.lua:385]: Found 165 files at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:36.961][info] [#0:script\workspace\loading.lua:160]: Load files from disk:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:36.961][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/os.lua , size = 5.926 KB
+[22:20:36.965][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/os.lua
+[22:20:36.966][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/math.lua , size = 8.911 KB
+[22:20:36.975][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/math.lua
+[22:20:36.976][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/io.lua , size = 6.566 KB
+[22:20:36.979][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/io.lua
+[22:20:36.979][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/package.lua , size = 3.050 KB
+[22:20:36.980][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/package.lua
+[22:20:36.981][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/debug.lua , size = 7.812 KB
+[22:20:36.984][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/debug.lua
+[22:20:36.985][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/string.lua , size = 6.608 KB
+[22:20:36.987][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/string.lua
+[22:20:36.988][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/table.lua , size = 5.134 KB
+[22:20:36.991][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/table.lua
+[22:20:36.991][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/utf8.lua , size = 2.448 KB
+[22:20:36.993][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/utf8.lua
+[22:20:36.993][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/basic.lua , size = 17.708 KB
+[22:20:37.003][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/basic.lua
+[22:20:37.003][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/builtin.lua , size = 0.302 KB
+[22:20:37.003][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/builtin.lua
+[22:20:37.003][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/coroutine.lua , size = 2.669 KB
+[22:20:37.005][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/coroutine.lua
+[22:20:37.005][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/audio_manager.lua , size = 6.357 KB
+[22:20:37.007][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_attributes.lua , size = 3.729 KB
+[22:20:37.009][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_cdk.lua , size = 3.900 KB
+[22:20:37.011][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_chat.lua , size = 3.538 KB
+[22:20:37.012][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_cultivation_arts.lua , size = 9.686 KB
+[22:20:37.015][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_formulas.lua , size = 7.455 KB
+[22:20:37.018][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_items.lua , size = 58.263 KB
+[22:20:37.038][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_martial_arts.lua , size = 18.860 KB
+[22:20:37.046][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_monetization.lua , size = 17.490 KB
+[22:20:37.051][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_pets.lua , size = 27.335 KB
+[22:20:37.059][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_race.lua , size = 6.438 KB
+[22:20:37.062][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_realms.lua , size = 26.799 KB
+[22:20:37.069][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_sect.lua , size = 14.988 KB
+[22:20:37.074][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_sensitive_words.lua , size = 4.134 KB
+[22:20:37.076][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_servers.lua , size = 7.557 KB
+[22:20:37.079][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_skills.lua , size = 12.013 KB
+[22:20:37.084][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_social.lua , size = 6.572 KB
+[22:20:37.087][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_spirit_root.lua , size = 7.995 KB
+[22:20:37.092][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/data_world.lua , size = 50.335 KB
+[22:20:37.110][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_ad.lua , size = 9.531 KB
+[22:20:37.116][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_ad_reward.lua , size = 6.839 KB
+[22:20:37.120][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_alchemy.lua , size = 18.608 KB
+[22:20:37.127][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_artifact.lua , size = 34.392 KB
+[22:20:37.140][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_balance.lua , size = 12.514 KB
+[22:20:37.145][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_battlepass.lua , size = 8.224 KB
+[22:20:37.149][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_block.lua , size = 4.226 KB
+[22:20:37.151][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_boss.lua , size = 8.860 KB
+[22:20:37.155][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_cdk.lua , size = 1.912 KB
+[22:20:37.156][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_cultivation.lua , size = 21.979 KB
+[22:20:37.162][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_dao.lua , size = 5.461 KB
+[22:20:37.165][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_dao_trial.lua , size = 10.357 KB
+[22:20:37.168][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_dujie.lua , size = 17.997 KB
+[22:20:37.175][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_explore.lua , size = 56.575 KB
+[22:20:37.193][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_gacha.lua , size = 5.056 KB
+[22:20:37.195][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_gift.lua , size = 7.109 KB
+[22:20:37.198][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_gm.lua , size = 20.371 KB
+[22:20:37.204][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_items.lua , size = 23.840 KB
+[22:20:37.212][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_loot.lua , size = 3.021 KB
+[22:20:37.214][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_mail.lua , size = 6.640 KB
+[22:20:37.216][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_market.lua , size = 34.236 KB
+[22:20:37.227][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_monthcard.lua , size = 7.355 KB
+[22:20:37.230][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_pet.lua , size = 32.137 KB
+[22:20:37.243][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_player.lua , size = 62.273 KB
+[22:20:37.265][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_quest.lua , size = 11.634 KB
+[22:20:37.270][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_recharge.lua , size = 4.412 KB
+[22:20:37.272][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_red_dot.lua , size = 5.579 KB
+[22:20:37.275][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_sect.lua , size = 12.118 KB
+[22:20:37.279][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_server.lua , size = 4.959 KB
+[22:20:37.282][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_signin.lua , size = 6.419 KB
+[22:20:37.285][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_skill.lua , size = 16.403 KB
+[22:20:37.291][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_social.lua , size = 15.529 KB
+[22:20:37.297][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_trial.lua , size = 14.612 KB
+[22:20:37.309][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/game_vip.lua , size = 5.215 KB
+[22:20:37.312][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/main.lua , size = 19.427 KB
+[22:20:37.317][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/chat_server.lua , size = 17.387 KB
+[22:20:37.323][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/client_net.lua , size = 22.466 KB
+[22:20:37.328][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/cloud_polyfill.lua , size = 8.198 KB
+[22:20:37.331][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/game_ops.lua , size = 8.642 KB
+[22:20:37.334][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_account.lua , size = 2.909 KB
+[22:20:37.336][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_ad.lua , size = 7.318 KB
+[22:20:37.338][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_alchemy.lua , size = 13.207 KB
+[22:20:37.342][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_artifact.lua , size = 49.226 KB
+[22:20:37.353][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_battlepass.lua , size = 12.198 KB
+[22:20:37.356][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_boss.lua , size = 15.949 KB
+[22:20:37.361][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_cdk.lua , size = 13.786 KB
+[22:20:37.364][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_character.lua , size = 4.306 KB
+[22:20:37.366][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_cultivation.lua , size = 48.062 KB
+[22:20:37.377][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_currency.lua , size = 36.333 KB
+[22:20:37.386][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_dao.lua , size = 14.798 KB
+[22:20:37.390][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_dao_trial.lua , size = 13.423 KB
+[22:20:37.395][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_equip.lua , size = 5.985 KB
+[22:20:37.397][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_explore.lua , size = 74.841 KB
+[22:20:37.415][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_gacha.lua , size = 18.010 KB
+[22:20:37.421][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_gift.lua , size = 7.464 KB
+[22:20:37.423][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_gm.lua , size = 52.316 KB
+[22:20:37.438][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_items.lua , size = 35.559 KB
+[22:20:37.447][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_monthcard.lua , size = 10.060 KB
+[22:20:37.450][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_pet.lua , size = 36.794 KB
+[22:20:37.459][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_quest.lua , size = 23.822 KB
+[22:20:37.465][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_rebirth.lua , size = 14.651 KB
+[22:20:37.469][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_recharge.lua , size = 5.129 KB
+[22:20:37.470][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_signin.lua , size = 5.502 KB
+[22:20:37.473][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_skill.lua , size = 14.878 KB
+[22:20:37.477][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_trial.lua , size = 13.557 KB
+[22:20:37.481][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_utils.lua , size = 15.216 KB
+[22:20:37.487][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/handler_vip.lua , size = 4.703 KB
+[22:20:37.489][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/pills_helper.lua , size = 5.557 KB
+[22:20:37.491][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/server_boss.lua , size = 30.501 KB
+[22:20:37.500][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/server_cloud_proxy.lua , size = 12.031 KB
+[22:20:37.504][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/server_combat.lua , size = 31.026 KB
+[22:20:37.514][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/server_explore_afk.lua , size = 39.282 KB
+[22:20:37.524][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/server_game.lua , size = 14.229 KB
+[22:20:37.528][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/server_market.lua , size = 16.765 KB
+[22:20:37.533][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/server_online.lua , size = 42.599 KB
+[22:20:37.548][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/server_sect.lua , size = 106.774 KB
+[22:20:37.583][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/server_social.lua , size = 52.449 KB
+[22:20:37.599][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/network/shared.lua , size = 7.182 KB
+[22:20:37.601][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/nvg_manager.lua , size = 2.588 KB
+[22:20:37.603][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/rich_text.lua , size = 11.769 KB
+[22:20:37.608][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/server_main.lua , size = 23.912 KB
+[22:20:37.616][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_alchemy.lua , size = 26.238 KB
+[22:20:37.624][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_announcement.lua , size = 8.525 KB
+[22:20:37.628][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_bag.lua , size = 47.736 KB
+[22:20:37.643][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_battlepass.lua , size = 16.717 KB
+[22:20:37.648][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_boss.lua , size = 26.386 KB
+[22:20:37.656][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_cdk.lua , size = 11.745 KB
+[22:20:37.660][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_challenge.lua , size = 9.667 KB
+[22:20:37.664][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_chat.lua , size = 17.384 KB
+[22:20:37.671][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_chat_common.lua , size = 12.598 KB
+[22:20:37.676][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_chat_input.lua , size = 6.758 KB
+[22:20:37.679][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_chat_private.lua , size = 8.680 KB
+[22:20:37.682][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_chat_world.lua , size = 5.440 KB
+[22:20:37.685][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_components.lua , size = 48.984 KB
+[22:20:37.701][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_create_role.lua , size = 27.505 KB
+[22:20:37.708][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_debug.lua , size = 19.896 KB
+[22:20:37.719][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_explore.lua , size = 55.015 KB
+[22:20:37.747][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_gacha.lua , size = 12.306 KB
+[22:20:37.751][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_gift.lua , size = 8.199 KB
+[22:20:37.753][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_gm.lua , size = 21.729 KB
+[22:20:37.760][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_gm_admin.lua , size = 87.083 KB
+[22:20:37.782][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_gm_player_detail.lua , size = 30.404 KB
+[22:20:37.790][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_guide.lua , size = 22.611 KB
+[22:20:37.797][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_home.lua , size = 83.621 KB
+[22:20:37.819][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_home_pages.lua , size = 100.956 KB
+[22:20:37.845][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_inheritance.lua , size = 22.485 KB
+[22:20:37.851][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_loading.lua , size = 8.758 KB
+[22:20:37.854][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_mail.lua , size = 8.451 KB
+[22:20:37.856][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_market.lua , size = 80.561 KB
+[22:20:37.878][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_menu.lua , size = 7.544 KB
+[22:20:37.880][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_monthcard.lua , size = 9.949 KB
+[22:20:37.883][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_more.lua , size = 6.722 KB
+[22:20:37.885][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_pet.lua , size = 45.640 KB
+[22:20:37.897][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_player_popup.lua , size = 8.906 KB
+[22:20:37.900][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_quest.lua , size = 11.972 KB
+[22:20:37.903][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_ranking.lua , size = 18.577 KB
+[22:20:37.908][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_rebirth.lua , size = 8.027 KB
+[22:20:37.910][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_recharge.lua , size = 8.005 KB
+[22:20:37.912][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_reconnect_overlay.lua , size = 7.749 KB
+[22:20:37.915][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_red_dot.lua , size = 3.965 KB
+[22:20:37.916][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_router.lua , size = 9.634 KB
+[22:20:37.919][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_sect.lua , size = 53.965 KB
+[22:20:37.933][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_server_select.lua , size = 16.062 KB
+[22:20:37.937][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_settings.lua , size = 29.990 KB
+[22:20:37.942][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_signin.lua , size = 13.623 KB
+[22:20:37.946][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_social.lua , size = 36.023 KB
+[22:20:37.955][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_story.lua , size = 26.060 KB
+[22:20:37.963][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_theme.lua , size = 15.566 KB
+[22:20:37.967][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_title.lua , size = 26.239 KB
+[22:20:37.974][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_toast.lua , size = 11.170 KB
+[22:20:37.977][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_trial.lua , size = 56.229 KB
+[22:20:37.991][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_vip.lua , size = 14.842 KB
+[22:20:37.995][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_welfare.lua , size = 8.751 KB
+[22:20:37.998][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/ui_world_map.lua , size = 25.375 KB
+[22:20:38.004][info] [#0:script\workspace\loading.lua:100]: Preload file at: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts/utils_sensitive.lua , size = 5.611 KB
+[22:20:38.006][info] [#0:script\workspace\loading.lua:172]: Loaded files takes [1.044] sec: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:38.006][info] [#0:script\workspace\loading.lua:181]: Compile files takes [0.000] sec: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:38.006][info] [#0:script\workspace\loading.lua:182]: Loaded finish:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:38.006][info] [#0:script\workspace\workspace.lua:387]: Preload finish at:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/game_cswd/scripts
+[22:20:50.254][info] [#0:script\workspace\workspace.lua:385]: Found 11 files at:	<fallback>
+[22:20:50.254][info] [#0:script\workspace\loading.lua:160]: Load files from disk:	<fallback>
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/os.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/os.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/io.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/io.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/math.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/math.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/package.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/package.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/string.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/string.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/debug.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/debug.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/table.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/table.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/utf8.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/utf8.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/basic.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/basic.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/builtin.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/builtin.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:88]: Skip loaded file: file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/coroutine.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:112]: ++++As library of:	file:///d%3A/User/70641/Documents/SCE%20Projects/game_entry_0/.codex-tools/luals/3.18.2/meta/Lua%205.4%20en-us%20utf8/coroutine.lua
+[22:20:50.254][info] [#0:script\workspace\loading.lua:172]: Loaded files takes [0.000] sec: <fallback>
+[22:20:50.254][info] [#0:script\workspace\loading.lua:181]: Compile files takes [0.000] sec: <fallback>
+[22:20:50.254][info] [#0:script\workspace\loading.lua:182]: Loaded finish:	<fallback>
+[22:20:50.254][info] [#0:script\workspace\workspace.lua:387]: Preload finish at:	<fallback>

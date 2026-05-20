@@ -1,0 +1,11 @@
+﻿{
+  "$id": "$01KQBMBBX74908NCHMQVA2Q5XV",
+  "$type": "GameCore.ItemSystem.Data.GameDataItemQuality",
+  "Color": {
+    "A": 1.0,
+    "B": 1.0,
+    "G": 0.6,
+    "R": 0.0
+  },
+  "Name": "宝器"
+}

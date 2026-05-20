@@ -1,0 +1,401 @@
+-- ============================================================================
+-- 《问道长生》客户端宗门逻辑
+-- 职责：发送宗门请求、缓存宗门/成员/申请数据、对外暴露状态查询接口
+-- ============================================================================
+
+local Shared    = require("network.shared")
+local EVENTS    = Shared.EVENTS
+local ClientNet = require("network.client_net")
+local DataSect  = require("data_sect")
+local Toast     = require("ui_toast")
+local GamePlayer = require("game_player")
+---@diagnostic disable-next-line: undefined-global
+local cjson     = cjson
+
+local M = {}
+
+-- ============================================================================
+-- 缓存数据
+-- ============================================================================
+
+local sectInfo_    = nil   -- 当前宗门信息 { id, name, notice, level, leaderUid, leaderName, memberCount }
+local members_     = {}    -- 成员列表 [{ uid, name, realm, role, joinTime }]
+local myRole_      = nil   -- 我在宗门的角色 "leader"/"elder"/"member"/nil
+local browseList_  = {}    -- 浏览宗门列表 [{ sectId, name, leaderName, memberCount, level }]
+local pendingList_ = {}    -- 待审批列表 [{ uid, name, realm, applyTime }]
+local taskData_    = nil   -- 今日宗门任务 { date, tasks[], allClaimed }
+local realmResult_ = nil   -- 最近一次秘境挑战结果
+local onRefresh_   = nil   -- UI 刷新回调
+
+-- ============================================================================
+-- 注册 UI 刷新回调
+-- ============================================================================
+
+---@param fn fun()
+function M.SetRefreshCallback(fn)
+    onRefresh_ = fn
+end
+
+local function NotifyRefresh()
+    if onRefresh_ then
+        onRefresh_()
+    end
+end
+
+-- ============================================================================
+-- 数据访问
+-- ============================================================================
+
+--- 获取当前宗门信息（nil 表示无宗门/散修）
+---@return table|nil
+function M.GetSectInfo()
+    return sectInfo_
+end
+
+--- 是否有宗门
+---@return boolean
+function M.HasSect()
+    return sectInfo_ ~= nil and sectInfo_.id ~= nil and sectInfo_.id ~= ""
+end
+
+--- 获取宗门种族（无宗门返回 nil）
+---@return string|nil  "human"/"demon"/"spirit"/"monster"
+function M.GetSectRace()
+    return sectInfo_ and sectInfo_.race or nil
+end
+
+--- 获取成员列表
+---@return table[]
+function M.GetMembers()
+    return members_
+end
+
+--- 获取我的角色
+---@return string|nil
+function M.GetMyRole()
+    return myRole_
+end
+
+--- 是否有某权限
+---@param permission string "approve"/"kick"/"transfer"/"notice"
+---@return boolean
+function M.HasPermission(permission)
+    if not myRole_ then return false end
+    local perm = DataSect.ROLE_PERMISSION[permission]
+    return perm and perm[myRole_] == true
+end
+
+--- 获取浏览宗门列表
+---@return table[]
+function M.GetBrowseList()
+    return browseList_
+end
+
+--- 获取待审批列表
+---@return table[]
+function M.GetPendingList()
+    return pendingList_
+end
+
+--- 获取今日宗门任务数据
+---@return table|nil  { date, tasks[], allClaimed }
+function M.GetTaskData()
+    return taskData_
+end
+
+--- 获取最近一次秘境挑战结果
+---@return table|nil
+function M.GetRealmResult()
+    return realmResult_
+end
+
+--- 清除秘境结果（UI 展示完毕后调用）
+function M.ClearRealmResult()
+    realmResult_ = nil
+end
+
+function M.Reset()
+    sectInfo_ = nil
+    members_ = {}
+    myRole_ = nil
+    browseList_ = {}
+    pendingList_ = {}
+    taskData_ = nil
+    realmResult_ = nil
+    NotifyRefresh()
+end
+
+-- ============================================================================
+-- 发送请求到服务端（统一通过 ReqSectOp 事件）
+-- ============================================================================
+
+---@param action string
+---@param extra table|nil
+---@return boolean
+local function SendSectOp(action, extra)
+    local GameServer = require("game_server")
+    local data = VariantMap()
+    data["Action"] = Variant(action)
+    data["PlayerKey"] = Variant(GameServer.GetServerKey("player"))
+    if extra then
+        for k, v in pairs(extra) do
+            data[k] = Variant(tostring(v))
+        end
+    end
+    return ClientNet.SendToServer(EVENTS.REQ_SECT_OP, data)
+end
+
+-- ============================================================================
+-- 对外操作接口
+-- ============================================================================
+
+--- 请求当前宗门信息+成员列表
+function M.RequestSectInfo()
+    SendSectOp(DataSect.ACTION.GET_INFO)
+end
+
+--- 请求浏览宗门列表
+function M.RequestBrowseList()
+    SendSectOp(DataSect.ACTION.BROWSE)
+end
+
+--- 创建宗门
+---@param name string
+function M.CreateSect(name)
+    SendSectOp(DataSect.ACTION.CREATE, { Name = name })
+end
+
+--- 申请加入宗门
+---@param sectId string
+function M.ApplyToSect(sectId)
+    local p = GamePlayer.Get()
+    if not p then
+        Toast.Show("数据未加载", { variant = "error" })
+        return
+    end
+    SendSectOp(DataSect.ACTION.APPLY, {
+        SectId    = sectId,
+        ApplyName = p.name or "无名",
+        ApplyRealm = p.realmName or "凡人",
+    })
+end
+
+--- 取消申请
+---@param sectId string
+function M.CancelApply(sectId)
+    SendSectOp(DataSect.ACTION.CANCEL_APPLY, { SectId = sectId })
+end
+
+--- 请求待审批列表
+function M.RequestPending()
+    SendSectOp(DataSect.ACTION.GET_PENDING)
+end
+
+--- 批准入门
+---@param targetUid number|string
+function M.Approve(targetUid)
+    SendSectOp(DataSect.ACTION.APPROVE, { TargetUid = targetUid })
+end
+
+--- 拒绝申请
+---@param targetUid number|string
+function M.Reject(targetUid)
+    SendSectOp(DataSect.ACTION.REJECT, { TargetUid = targetUid })
+end
+
+--- 退出宗门
+function M.LeaveSect()
+    SendSectOp(DataSect.ACTION.LEAVE)
+end
+
+--- 踢出成员
+---@param targetUid number|string
+function M.KickMember(targetUid)
+    SendSectOp(DataSect.ACTION.KICK, { TargetUid = targetUid })
+end
+
+--- 转让宗主
+---@param targetUid number|string
+function M.Transfer(targetUid)
+    SendSectOp(DataSect.ACTION.TRANSFER, { TargetUid = targetUid })
+end
+
+--- 编辑公告
+---@param notice string
+function M.EditNotice(notice)
+    SendSectOp(DataSect.ACTION.EDIT_NOTICE, { Notice = notice })
+end
+
+--- 升级宗门（宗主专属）
+function M.UpgradeSect()
+    SendSectOp(DataSect.ACTION.UPGRADE)
+end
+
+--- 捐献灵石换贡献
+---@param amount number 灵石数量
+function M.DonateLingStone(amount)
+    SendSectOp(DataSect.ACTION.DONATE, { Amount = amount })
+end
+
+--- 请求今日宗门任务
+function M.RequestTasks()
+    SendSectOp(DataSect.ACTION.GET_TASKS)
+end
+
+--- 领取单个任务奖励
+---@param taskId string
+function M.ClaimTask(taskId)
+    SendSectOp(DataSect.ACTION.CLAIM_TASK, { TaskId = taskId })
+end
+
+--- 领取全部完成额外奖励
+function M.ClaimAllBonus()
+    SendSectOp(DataSect.ACTION.CLAIM_ALL)
+end
+
+--- 宗门宝库购买
+---@param itemId string 商品ID
+function M.BuyShopItem(itemId)
+    SendSectOp(DataSect.ACTION.SHOP_BUY, { ItemId = itemId })
+end
+
+--- 进入宗门秘境
+---@param diffId string 难度 ID ("easy"/"normal"/"hard")
+function M.EnterRealm(diffId)
+    realmResult_ = nil
+    SendSectOp(DataSect.ACTION.REALM_ENTER, { DiffId = diffId })
+end
+
+-- ============================================================================
+-- 服务端回复处理（由 client_net.lua 中转调用）
+-- ============================================================================
+
+---@param eventData any
+function M.OnSectData(eventData)
+    local action  = eventData:GetString("Action")
+    local success = eventData:GetBool("Success")
+    local msg     = eventData:GetString("Msg")
+
+    -- 宗门信息 + 成员列表
+    if action == DataSect.RESP_ACTION.SECT_INFO then
+        if success then
+            local jsonStr = eventData["Data"]:GetString()
+            local ok2, decoded = pcall(cjson.decode, jsonStr)
+            if ok2 and type(decoded) == "table" then
+                sectInfo_ = decoded.sect or nil
+                members_  = decoded.members or {}
+                myRole_   = decoded.myRole or nil
+                print("[GameSect] 宗门信息: " .. (sectInfo_ and sectInfo_.name or "散修")
+                    .. " 成员:" .. #members_ .. " 角色:" .. tostring(myRole_))
+            end
+        else
+            -- 获取失败 = 无宗门
+            sectInfo_ = nil
+            members_  = {}
+            myRole_   = nil
+        end
+        NotifyRefresh()
+        return
+    end
+
+    -- 浏览宗门列表
+    if action == DataSect.RESP_ACTION.BROWSE_LIST then
+        if success then
+            local jsonStr = eventData["Data"]:GetString()
+            local ok2, decoded = pcall(cjson.decode, jsonStr)
+            if ok2 and type(decoded) == "table" then
+                browseList_ = decoded
+                print("[GameSect] 宗门列表: " .. #browseList_ .. " 个")
+            end
+        end
+        NotifyRefresh()
+        return
+    end
+
+    -- 待审批列表
+    if action == DataSect.RESP_ACTION.PENDING_LIST then
+        if success then
+            local jsonStr = eventData["Data"]:GetString()
+            local ok2, decoded = pcall(cjson.decode, jsonStr)
+            if ok2 and type(decoded) == "table" then
+                pendingList_ = decoded
+                print("[GameSect] 待审批: " .. #pendingList_ .. " 人")
+            end
+        end
+        NotifyRefresh()
+        return
+    end
+
+    -- 宗门任务列表
+    if action == DataSect.RESP_ACTION.TASK_LIST then
+        if success then
+            local jsonStr = eventData["Data"]:GetString()
+            local ok2, decoded = pcall(cjson.decode, jsonStr)
+            if ok2 and type(decoded) == "table" then
+                taskData_ = decoded
+                print("[GameSect] 宗门任务: " .. #(decoded.tasks or {}) .. " 个"
+                    .. (decoded.allClaimed and " (已领全部)" or ""))
+            end
+        end
+        if msg and msg ~= "" then
+            Toast.Show(msg, { variant = success and "success" or "error" })
+        end
+        NotifyRefresh()
+        return
+    end
+
+    -- 秘境挑战结果
+    if action == DataSect.RESP_ACTION.REALM_RESULT then
+        if success then
+            local jsonStr = eventData["Data"]:GetString()
+            local ok2, decoded = pcall(cjson.decode, jsonStr)
+            if ok2 and type(decoded) == "table" then
+                realmResult_ = decoded
+                print("[GameSect] 秘境结果: " .. (decoded.diffName or "?")
+                    .. " 通关" .. (decoded.cleared or 0) .. "/" .. (decoded.floors or 0) .. "层"
+                    .. " 灵石+" .. (decoded.rewardLing or 0)
+                    .. " 贡献+" .. (decoded.rewardContrib or 0))
+            end
+        end
+        NotifyRefresh()
+        return
+    end
+
+    -- 通用操作结果
+    if action == DataSect.RESP_ACTION.RESULT then
+        if msg and msg ~= "" then
+            Toast.Show(msg, { variant = success and "success" or "error" })
+        end
+
+        -- 操作成功后的余额同步
+        if success then
+            local balanceStr = eventData["Balance"] and eventData["Balance"]:GetString() or nil
+            if balanceStr then
+                local balance = tonumber(balanceStr)
+                if balance and balance >= 0 then
+                    GamePlayer.SyncField("lingStone", balance)
+                end
+            end
+        end
+
+        -- 操作成功后自动刷新
+        if success then
+            M.RequestSectInfo()
+            -- 如果有 pending 列表缓存，刷新一次以同步审批结果
+            if #pendingList_ > 0 then
+                M.RequestPending()
+            end
+        end
+        NotifyRefresh()
+        return
+    end
+end
+
+--- 红点查询：是否有待处理的宗门事务
+---@return boolean
+function M.HasPending()
+    local list = M.GetPendingList()
+    return list ~= nil and #list > 0
+end
+
+return M

@@ -1,0 +1,76 @@
+﻿{
+  "Timestamp": 1779273091,
+  "CacheFields": "EntryInfo.json:$hash,DisplayName,Icon,Name;$inherit,$type",
+  "$GameEntry.ScopeData.GameDataGameMode.MapGameMode": {
+    "$id": "$01KK11M1W4BC6GPW8T03FV5E3S",
+    "$ref": "$01K49SNEYNFNM5D908MFPHJN9E,$01K4PKZB2W7KXGW5ZYK3CSJXM7,$01KFHX6W524XH9Y3GFKGXHYA8X,$01KFHX6W527T0K2D074Z8D3QB8,$01KFHYDMVE43GSGM4GKNGF12KD,$01KG1TV3DR4H6MP5GQB38NRJAK",
+    "Root": {
+      "$type": "GameCore.GameSystem.Data.GameDataGameMode"
+    }
+  },
+  "$GameEntry.ScopeData.GameDataItemMod.布衣": {
+    "$id": "$01KQBMBBX7E70MTNM02C0HGV3D",
+    "$type": "GameCore.ItemSystem.Data.GameDataItemMod",
+    "Description": {},
+    "DisplayName": {},
+    "Modifications": {}
+  },
+  "$GameEntry.ScopeData.GameDataItemMod.新手木剑": {
+    "$id": "$01KQBMBBX77V1S14FADS8VEFQW",
+    "$type": "GameCore.ItemSystem.Data.GameDataItemMod",
+    "Description": {},
+    "DisplayName": {},
+    "Modifications": {}
+  },
+  "$GameEntry.ScopeData.GameDataItemPickable.灵草": {
+    "$id": "$01KQBMBBX7NZNF3SJ9MHQ6BVDN",
+    "$type": "GameCore.ItemSystem.Data.GameDataItemPickable",
+    "Description": {},
+    "DisplayName": {}
+  },
+  "$GameEntry.ScopeData.GameDataItemPickable.聚气丹": {
+    "$id": "$01KQBMBBX752JV1SJZTTFN806K",
+    "$type": "GameCore.ItemSystem.Data.GameDataItemPickable",
+    "Description": {},
+    "DisplayName": {}
+  },
+  "$GameEntry.ScopeData.GameDataItemPickable.铁矿石": {
+    "$id": "$01KQBMBBX7EPJZMNSB24X0DXTX",
+    "$type": "GameCore.ItemSystem.Data.GameDataItemPickable",
+    "Description": {},
+    "DisplayName": {}
+  },
+  "$GameEntry.ScopeData.GameDataItemQuality.ItemQualities": {
+    "$id": "$01KQBMBBX3NM4W48CH0MRCX3V1",
+    "$type": "GameCore.ItemSystem.Data.GameDataItemQuality",
+    "Color": {}
+  },
+  "$GameEntry.ScopeData.GameDataItemQuality.宝器": {
+    "$id": "$01KQBMBBX74908NCHMQVA2Q5XV",
+    "$type": "GameCore.ItemSystem.Data.GameDataItemQuality",
+    "Color": {}
+  },
+  "$GameEntry.ScopeData.GameDataItemQuality.法器": {
+    "$id": "$01KQBMBBX76C53NEAYT0M9BJ7K",
+    "$type": "GameCore.ItemSystem.Data.GameDataItemQuality",
+    "Color": {}
+  },
+  "$GameEntry.ScopeData.GameDataItemQuality.灵器": {
+    "$id": "$01KQBMBBX7QJ45ERXME68VGXK9",
+    "$type": "GameCore.ItemSystem.Data.GameDataItemQuality",
+    "Color": {}
+  },
+  "$GameEntry.ScopeData.GameDataPlayerSettings.PlayerSettings": {
+    "$id": "$01K49SNEYNFNM5D908MFPHJN9E",
+    "Root": {
+      "$type": "GameCore.PlayerAndUsers.Data.GameDataPlayerSettings"
+    }
+  },
+  "$GameEntry.ScopeData.GameDataScene.new_scene": {
+    "$id": "$01K4PKZB2W7KXGW5ZYK3CSJXM7",
+    "$ref": "$01KJSGZE83VCET7WP7DTXNJH4S,$01KKRHB98YJKHC0SMPTQWEA7KC",
+    "Root": {
+      "$inherit": "$01KKRHB98YJKHC0SMPTQWEA7KC.Root"
+    }
+  }
+}

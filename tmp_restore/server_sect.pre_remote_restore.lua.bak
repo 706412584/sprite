@@ -1,0 +1,2491 @@
+-- ============================================================================
+-- 《问道长生》服务端宗门模块
+-- 职责：创建/加入/退出/审批/踢人/转让/成员列表/宗门列表
+-- 架构：裸远程事件（同社交系统），灵石扣费用 serverCloud.money:Cost
+--
+-- ⚠️ 竞态风险说明（已修复）：
+-- 本模块通过裸远程事件处理请求，不走 GameOps Per-Player 队列。
+-- 所有 playerData 写入已改为 UpdatePlayerFields()：重新读取最新 blob → 只合并
+-- sectId/sectName/sectRole/sectDonateLog → 写回。不再使用开头读到的旧 playerData
+-- 直接 Set，避免覆盖 pills/artifacts 等被其他 handler 修改的字段。
+-- ============================================================================
+
+local Shared      = require("network.shared")
+local EVENTS      = Shared.EVENTS
+local DataSect    = require("data_sect")
+local GameServer  = require("game_server")
+local DataFormulas = require("data_formulas")
+local PillsHelper = require("network.pills_helper")
+local SensitiveFilter = require("utils_sensitive")
+local HandlerUtils = require("network.handler_utils")
+---@diagnostic disable-next-line: undefined-global
+local cjson       = cjson
+
+local M = {}
+
+---@type table { connections, connUserIds, userIdToConn, SendToClient }
+local deps_ = nil
+local requestQueue_ = {}
+local processingRequest_ = false
+
+-- ============================================================================
+-- 初始化
+-- ============================================================================
+
+---@param deps table
+function M.Init(deps)
+    deps_ = deps
+    print("[ServerSect] 宗门模块初始化完成")
+end
+
+-- ============================================================================
+-- 工具函数
+-- ============================================================================
+
+--- 向指定玩家发送宗门回复
+local function Reply(userId, action, success, msg, extra)
+    local data = VariantMap()
+    data["Action"]  = Variant(action)
+    data["Success"] = Variant(success)
+    data["Msg"]     = Variant(msg or "")
+    if extra then
+        for k, v in pairs(extra) do
+            data[k] = v
+        end
+    end
+    deps_.SendToClient(userId, EVENTS.SECT_DATA, data)
+    processingRequest_ = false
+    if #requestQueue_ > 0 then
+        local nextReq = table.remove(requestQueue_, 1)
+        M.HandleSectOp(nextReq.userId, nextReq.eventData)
+    end
+end
+
+--- 获取玩家数据的 serverCloud key
+local function PlayerKey(eventData)
+    if eventData then
+        local ok, val = pcall(function() return eventData["PlayerKey"]:GetString() end)
+        if ok and val and val ~= "" then return val end
+    end
+    return GameServer.GetServerKey("player")
+end
+
+--- 通用 serverCloud 错误日志（所有 error 回调统一使用）
+---@param op string 操作名
+---@param userId number
+---@param key string
+local function LogCloudError(op, userId, key, code, reason)
+    print("[ServerSect] " .. op .. " serverCloud ERROR: uid=" .. tostring(userId)
+        .. " key=" .. tostring(key)
+        .. " code=" .. tostring(code)
+        .. " reason=" .. tostring(reason))
+end
+
+--- 获取宗门 serverCloud key
+---@param sectId string
+local function SectKey(sectId)
+    return "sect_" .. sectId
+end
+
+--- 获取宗门成员 list key
+---@param sectId string
+local function MembersKey(sectId)
+    return "sect_" .. sectId .. "_members"
+end
+
+--- 获取宗门待审批 list key
+---@param sectId string
+local function PendingKey(sectId)
+    return "sect_" .. sectId .. "_pending"
+end
+
+--- 名称索引 key
+local NAME_INDEX_KEY = "sect_name_index"
+
+--- 宗门注册表 key（改为 serverCloud:Get/Set 全局键值，不再用 list）
+local REGISTRY_KEY = "sect_registry"
+
+---@param pKey string|nil
+---@return string
+local function ServerPrefixFromPlayerKey(pKey)
+    local key = pKey
+    if type(key) ~= "string" or key == "" then
+        key = GameServer.GetServerKey("player")
+    end
+    local prefix = key:match("^(s%d+_)")
+    if prefix and prefix ~= "" then
+        return prefix
+    end
+
+    local s = GameServer.GetCurrentServer()
+    return "s" .. tostring(s.id) .. "_"
+end
+
+---@param pKeyOrEventData string|table|nil
+---@return table
+local function BuildServerNamespace(pKeyOrEventData)
+    local pKey
+    if type(pKeyOrEventData) == "string" then
+        pKey = pKeyOrEventData
+    elseif pKeyOrEventData ~= nil then
+        pKey = PlayerKey(pKeyOrEventData)
+    end
+
+    local prefix = ServerPrefixFromPlayerKey(pKey)
+    return {
+        prefix = prefix,
+        nameIndexKey = prefix .. "sect_name_index",
+        registryKey = prefix .. "sect_registry",
+        SectKey = function(sectId)
+            return prefix .. "sect_" .. sectId
+        end,
+        MembersKey = function(sectId)
+            return prefix .. "sect_" .. sectId .. "_members"
+        end,
+        PendingKey = function(sectId)
+            return prefix .. "sect_" .. sectId .. "_pending"
+        end,
+    }
+end
+
+---@param pKeyOrEventData string|table|nil
+local function ApplyServerNamespace(pKeyOrEventData)
+    local ns = BuildServerNamespace(pKeyOrEventData)
+    NAME_INDEX_KEY = ns.nameIndexKey
+    REGISTRY_KEY = ns.registryKey
+    return ns
+end
+
+-- ============================================================================
+-- 共享数组存储辅助函数
+-- ⚠️ serverCloud:Get/Set **按 uid 隔离**！不同 uid 读写同一 key 是不同数据。
+-- 所有共享数据（宗门注册表、成员列表、待审批列表）必须使用固定 SHARED_UID=0，
+-- 保证任何玩家读写的都是同一份数据。
+-- ============================================================================
+
+--- 全局共享数据的固定 uid（不能用玩家 uid，否则数据隔离导致其他玩家看不见）
+local SHARED_UID = 0
+
+--- 读取共享数组数据（使用 SHARED_UID 保证全局可见）
+---@param key string
+---@param callback fun(arr: table|nil, err: string|nil)
+local function ReadSharedList(key, callback)
+    serverCloud:Get(SHARED_UID, key, {
+        ok = function(scores)
+            local arr = (scores and scores[key]) or {}
+            if type(arr) ~= "table" then arr = {} end
+            callback(arr, nil)
+        end,
+        error = function(code, reason)
+            callback(nil, tostring(reason))
+        end,
+    })
+end
+
+--- 写入共享数组数据（使用 SHARED_UID 保证全局可见）
+---@param key string
+---@param arr table
+---@param callback fun(ok: boolean, err: string|nil)|nil
+local function WriteSharedList(key, arr, callback)
+    serverCloud:Set(SHARED_UID, key, arr, {
+        ok = function()
+            if callback then callback(true) end
+        end,
+        error = function(code, reason)
+            if callback then callback(false, tostring(reason)) end
+        end,
+    })
+end
+
+--- 读取共享键值数据（宗门信息、名称索引等全局数据）
+---@param key string
+---@param callback fun(data: any, err: string|nil)
+local function ReadSharedData(key, callback)
+    serverCloud:Get(SHARED_UID, key, {
+        ok = function(scores)
+            callback(scores and scores[key], nil)
+        end,
+        error = function(code, reason)
+            callback(nil, tostring(reason))
+        end,
+    })
+end
+
+--- 写入共享键值数据
+---@param key string
+---@param value any
+---@param callback fun(ok: boolean, err: string|nil)|nil
+local function WriteSharedData(key, value, callback)
+    serverCloud:Set(SHARED_UID, key, value, {
+        ok = function()
+            if callback then callback(true) end
+        end,
+        error = function(code, reason)
+            if callback then callback(false, tostring(reason)) end
+        end,
+    })
+end
+
+--- 计算 UTF-8 字符串的字符数（中文算 1 个字符）
+---@param s string
+---@return number
+local function Utf8Len(s)
+    local len = 0
+    local i = 1
+    while i <= #s do
+        local b = string.byte(s, i)
+        if b < 0x80 then
+            i = i + 1
+        elseif b < 0xE0 then
+            i = i + 2
+        elseif b < 0xF0 then
+            i = i + 3
+        else
+            i = i + 4
+        end
+        len = len + 1
+    end
+    return len
+end
+
+-- ============================================================================
+-- 安全局部字段更新（避免全量写回 playerData 导致的竞态覆盖）
+-- 重新读取最新 playerData，只合并指定字段，再写回。
+-- ============================================================================
+
+--- 安全地更新 playerData 中的指定字段（不覆盖其他字段如 pills/artifacts）
+---@param userId number
+---@param fields table { sectId = "xxx", sectName = "yyy", ... }
+---@param callback fun(ok: boolean, msg: string|nil)
+local function UpdatePlayerFields(userId, fields, callback, pKeyOrEventData)
+    -- 支持直接传 pKey 字符串（推荐），或传 eventData 由 PlayerKey() 解析
+    local pKey
+    if type(pKeyOrEventData) == "string" then
+        pKey = pKeyOrEventData
+    else
+        pKey = PlayerKey(pKeyOrEventData)
+    end
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local pd = scores and scores[pKey]
+            if type(pd) ~= "table" then
+                callback(false, "玩家数据读取失败")
+                return
+            end
+            -- 只合并变更字段
+            for k, v in pairs(fields) do
+                pd[k] = v
+            end
+            serverCloud:Set(userId, pKey, pd, {
+                ok = function()
+                    callback(true)
+                end,
+                error = function(_, reason)
+                    callback(false, "保存失败: " .. tostring(reason))
+                end,
+            })
+        end,
+        error = function(_, reason)
+            callback(false, "读取失败: " .. tostring(reason))
+        end,
+    })
+end
+
+-- ============================================================================
+-- 统一入口
+-- ============================================================================
+
+function M.HandleSectOp(userId, eventData)
+    if processingRequest_ then
+        requestQueue_[#requestQueue_ + 1] = {
+            userId = userId,
+            eventData = eventData,
+        }
+        return
+    end
+
+    processingRequest_ = true
+    ApplyServerNamespace(eventData)
+    local action = eventData["Action"]:GetString()
+
+    if action == DataSect.ACTION.GET_INFO then
+        M.OnGetInfo(userId, eventData)
+    elseif action == DataSect.ACTION.BROWSE then
+        M.OnBrowse(userId, eventData)
+    elseif action == DataSect.ACTION.CREATE then
+        M.OnCreate(userId, eventData)
+    elseif action == DataSect.ACTION.APPLY then
+        M.OnApply(userId, eventData)
+    elseif action == DataSect.ACTION.CANCEL_APPLY then
+        M.OnCancelApply(userId, eventData)
+    elseif action == DataSect.ACTION.GET_PENDING then
+        M.OnGetPending(userId, eventData)
+    elseif action == DataSect.ACTION.APPROVE then
+        M.OnApprove(userId, eventData)
+    elseif action == DataSect.ACTION.REJECT then
+        M.OnReject(userId, eventData)
+    elseif action == DataSect.ACTION.LEAVE then
+        M.OnLeave(userId, eventData)
+    elseif action == DataSect.ACTION.KICK then
+        M.OnKick(userId, eventData)
+    elseif action == DataSect.ACTION.TRANSFER then
+        M.OnTransfer(userId, eventData)
+    elseif action == DataSect.ACTION.EDIT_NOTICE then
+        M.OnEditNotice(userId, eventData)
+    elseif action == DataSect.ACTION.UPGRADE then
+        M.OnUpgrade(userId, eventData)
+    elseif action == DataSect.ACTION.DONATE then
+        M.OnDonate(userId, eventData)
+    elseif action == DataSect.ACTION.GET_TASKS then
+        M.OnGetTasks(userId, eventData)
+    elseif action == DataSect.ACTION.CLAIM_TASK then
+        M.OnClaimTask(userId, eventData)
+    elseif action == DataSect.ACTION.CLAIM_ALL then
+        M.OnClaimAll(userId, eventData)
+    elseif action == DataSect.ACTION.SHOP_BUY then
+        M.OnShopBuy(userId, eventData)
+    elseif action == DataSect.ACTION.REALM_ENTER then
+        M.OnRealmEnter(userId, eventData)
+    else
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "未知宗门操作")
+    end
+end
+
+-- ============================================================================
+-- get_info — 获取当前宗门信息 + 成员列表
+-- ============================================================================
+
+function M.OnGetInfo(userId, eventData)
+    local pKey = PlayerKey(eventData)
+    print("[ServerSect] OnGetInfo uid=" .. tostring(userId) .. " pKey=" .. tostring(pKey))
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                -- 详细诊断日志
+                local keysStr = ""
+                if type(scores) == "table" then
+                    for k, _ in pairs(scores) do keysStr = keysStr .. tostring(k) .. "," end
+                end
+                print("[ServerSect] OnGetInfo 角色数据读取失败: uid=" .. tostring(userId)
+                    .. " uid_type=" .. type(userId)
+                    .. " pKey=" .. tostring(pKey)
+                    .. " scores_type=" .. type(scores)
+                    .. " val_type=" .. type(scores and scores[pKey])
+                    .. " scores_keys=[" .. keysStr .. "]")
+                Reply(userId, DataSect.RESP_ACTION.SECT_INFO, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = playerData.sectId or ""
+            if sectId == "" then
+                -- 散修联盟
+                Reply(userId, DataSect.RESP_ACTION.SECT_INFO, true, "", {
+                    Data = Variant(cjson.encode({
+                        sect    = nil,
+                        members = {},
+                        myRole  = nil,
+                    })),
+                })
+                return
+            end
+
+            -- 读宗门信息
+            serverCloud:Get(SHARED_UID, SectKey(sectId), {
+                ok = function(sectScores)
+                    local sectInfo = sectScores and sectScores[SectKey(sectId)]
+                    if type(sectInfo) ~= "table" then
+                        Reply(userId, DataSect.RESP_ACTION.SECT_INFO, false, "宗门数据读取失败")
+                        return
+                    end
+
+                    -- 懒触发：每周贡献结算（幂等，只在跨周时执行一次）
+                    M.TryWeeklyDistribution(userId, sectId, sectInfo, pKey)
+
+                    -- 读成员列表（使用全局键值存储，不再受 uid 隔离）
+                    ReadSharedList(MembersKey(sectId), function(arr, err)
+                        if err then
+                            Reply(userId, DataSect.RESP_ACTION.SECT_INFO, true, "", {
+                                Data = Variant(cjson.encode({
+                                    sect    = sectInfo,
+                                    members = {},
+                                    myRole  = nil,
+                                })),
+                            })
+                            return
+                        end
+                        local members = {}
+                        local myRole = nil
+                        for _, entry in ipairs(arr) do
+                            members[#members + 1] = entry
+                            if entry.userId == userId then
+                                myRole = entry.role
+                            end
+                        end
+                        Reply(userId, DataSect.RESP_ACTION.SECT_INFO, true, "", {
+                            Data = Variant(cjson.encode({
+                                sect    = sectInfo,
+                                members = members,
+                                myRole  = myRole,
+                            })),
+                        })
+                    end)
+                end,
+                error = function(code, reason)
+                    LogCloudError("GetSect", userId, "sectKey", code, reason)
+                    Reply(userId, DataSect.RESP_ACTION.SECT_INFO, false, "宗门数据读取失败")
+                end,
+            })
+        end,
+        error = function(code, reason)
+            print("[ServerSect] OnGetInfo serverCloud:Get ERROR: uid=" .. tostring(userId)
+                .. " pKey=" .. tostring(pKey)
+                .. " code=" .. tostring(code)
+                .. " reason=" .. tostring(reason))
+            Reply(userId, DataSect.RESP_ACTION.SECT_INFO, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- browse — 浏览所有宗门列表
+-- ============================================================================
+
+function M.OnBrowse(userId, eventData)
+    ReadSharedList(REGISTRY_KEY, function(arr, err)
+        if err then
+            LogCloudError("SectRead", userId, "registry", nil, err)
+            Reply(userId, DataSect.RESP_ACTION.BROWSE_LIST, false, "宗门列表读取失败")
+            return
+        end
+        Reply(userId, DataSect.RESP_ACTION.BROWSE_LIST, true, "", {
+            Data = Variant(cjson.encode(arr)),
+        })
+    end)
+end
+
+-- ============================================================================
+-- create — 创建宗门
+-- ============================================================================
+
+function M.OnCreate(userId, eventData)
+    local name = eventData["Name"]:GetString()
+
+    -- 名称长度校验
+    local nameLen = Utf8Len(name)
+    if nameLen < DataSect.NAME_MIN_LEN or nameLen > DataSect.NAME_MAX_LEN then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+            "宗门名称需" .. DataSect.NAME_MIN_LEN .. "~" .. DataSect.NAME_MAX_LEN .. "个字")
+        return
+    end
+
+    -- 敏感词校验（服务端兜底）
+    local nameOk, nameReason = SensitiveFilter.CheckName(name, DataSect.NAME_MIN_LEN, DataSect.NAME_MAX_LEN)
+    if not nameOk then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, nameReason)
+        return
+    end
+
+    -- 读取玩家数据，确认未加入宗门
+    local pKey = PlayerKey(eventData)
+    print("[ServerSect] OnCreate uid=" .. tostring(userId) .. " pKey=" .. tostring(pKey) .. " name=" .. tostring(name))
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                -- 详细诊断日志：打印 scores 所有 key 帮助定位 key 不匹配
+                local keysStr = ""
+                if type(scores) == "table" then
+                    for k, _ in pairs(scores) do keysStr = keysStr .. tostring(k) .. "," end
+                end
+                print("[ServerSect] OnCreate 角色数据读取失败: uid=" .. tostring(userId)
+                    .. " uid_type=" .. type(userId)
+                    .. " pKey=" .. tostring(pKey)
+                    .. " scores_type=" .. type(scores)
+                    .. " val_type=" .. type(scores and scores[pKey])
+                    .. " scores_keys=[" .. keysStr .. "]")
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败，请确认角色已创建并保存")
+                return
+            end
+
+            if (playerData.sectId or "") ~= "" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你已加入宗门，需先退出")
+                return
+            end
+
+            -- 名称唯一性校验
+            serverCloud:Get(SHARED_UID, NAME_INDEX_KEY, {
+                ok = function(indexScores)
+                    local nameIndex = (indexScores and indexScores[NAME_INDEX_KEY]) or {}
+                    if type(nameIndex) ~= "table" then nameIndex = {} end
+
+                    if nameIndex[name] then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门名称已被使用")
+                        return
+                    end
+
+                    -- 扣灵石
+                    serverCloud.money:Cost(userId, "lingStone", DataSect.CREATE_COST, {
+                        ok = function()
+                            local sectId = tostring(os.time()) .. "_" .. tostring(userId)
+                            local now = os.time()
+                            local playerName = playerData.name or "无名"
+                            local playerRace = playerData.race or "human"
+
+                            -- 1. 写宗门信息（绑定创建者种族）
+                            local sectInfo = {
+                                id          = sectId,
+                                name        = name,
+                                leaderId    = userId,
+                                leaderName  = playerName,
+                                race        = playerRace,
+                                level       = 1,
+                                notice      = DataSect.DEFAULT_NOTICE,
+                                memberCount = 1,
+                                createdAt   = now,
+                            }
+                            serverCloud:Set(SHARED_UID, SectKey(sectId), sectInfo, {
+                                ok = function() end,
+                                error = function() end,
+                            })
+
+                            -- 2. 添加创始成员（全局键值数组）
+                            local founderMember = {
+                                userId       = userId,
+                                name         = playerName,
+                                role         = DataSect.ROLE.LEADER,
+                                joinedAt     = now,
+                                contribution = 0,
+                            }
+                            WriteSharedList(MembersKey(sectId), { founderMember })
+
+                            -- 3. 更新名称索引
+                            nameIndex[name] = sectId
+                            serverCloud:Set(SHARED_UID, NAME_INDEX_KEY, nameIndex, {
+                                ok = function() end,
+                                error = function() end,
+                            })
+
+                            -- 4. 添加到宗门注册表（全局键值数组）
+                            local registryEntry = {
+                                sectId      = sectId,
+                                name        = name,
+                                leaderName  = playerName,
+                                race        = playerRace,
+                                level       = 1,
+                                memberCount = 1,
+                            }
+                            ReadSharedList(REGISTRY_KEY, function(regArr)
+                                regArr = regArr or {}
+                                regArr[#regArr + 1] = registryEntry
+                                WriteSharedList(REGISTRY_KEY, regArr)
+                            end)
+
+                            -- 5. 更新玩家数据（局部字段更新，避免覆盖 pills 等）
+                            UpdatePlayerFields(userId, {
+                                sectId   = sectId,
+                                sectName = name,
+                                sectRole = DataSect.ROLE.LEADER,
+                            }, function(ok, msg)
+                                if not ok then
+                                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, msg or "保存角色数据失败")
+                                    return
+                                end
+                                -- 获取余额返回
+                                serverCloud.money:Get(userId, {
+                                    ok = function(moneys)
+                                        local balance = (moneys and moneys["lingStone"]) or 0
+                                        Reply(userId, DataSect.RESP_ACTION.RESULT, true, "创建宗门「" .. name .. "」成功！", {
+                                            Balance = Variant(tostring(balance)),
+                                            SectId  = Variant(sectId),
+                                        })
+                                    end,
+                                    error = function()
+                                        Reply(userId, DataSect.RESP_ACTION.RESULT, true, "创建宗门「" .. name .. "」成功！")
+                                    end,
+                                })
+                            end, pKey)
+                        end,
+                        error = function(code, reason)
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "灵石不足，需要" .. DataSect.CREATE_COST .. "灵石")
+                        end,
+                    })
+                end,
+                error = function(code, reason)
+                    LogCloudError("GetNameIndex", userId, "key", code, reason)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "名称校验失败，请重试")
+                end,
+            })
+        end,
+        error = function(code, reason)
+            print("[ServerSect] OnCreate serverCloud:Get ERROR: uid=" .. tostring(userId)
+                .. " pKey=" .. tostring(pKey)
+                .. " code=" .. tostring(code)
+                .. " reason=" .. tostring(reason))
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- apply — 申请加入宗门
+-- ============================================================================
+
+function M.OnApply(userId, eventData)
+    local sectId = eventData["SectId"]:GetString()
+    if sectId == "" then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "无效的宗门")
+        return
+    end
+
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+
+            if (playerData.sectId or "") ~= "" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你已加入宗门，需先退出")
+                return
+            end
+
+            -- 检查宗门是否存在
+            serverCloud:Get(SHARED_UID, SectKey(sectId), {
+                ok = function(sectScores)
+                    local sectInfo = sectScores and sectScores[SectKey(sectId)]
+                    if type(sectInfo) ~= "table" then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门不存在")
+                        return
+                    end
+
+                    -- 种族校验：只有同族可以申请
+                    local playerRace = playerData.race or "human"
+                    local sectRace   = sectInfo.race or "human"
+                    if playerRace ~= sectRace then
+                        local raceLabel = DataSect.RACE_LABEL or {}
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+                            "该宗门为" .. (raceLabel[sectRace] or sectRace) .. "宗门，仅同族可加入")
+                        return
+                    end
+
+                    -- 检查人数上限
+                    local maxMembers = DataSect.GetLevelInfo(sectInfo.level or 1).maxMembers
+                    if (sectInfo.memberCount or 0) >= maxMembers then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "该宗门人数已满")
+                        return
+                    end
+
+                    -- 检查是否已申请过（全局键值数组）
+                    ReadSharedList(PendingKey(sectId), function(pendingArr, err)
+                        if err then
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "提交申请失败，请重试")
+                            return
+                        end
+                        for _, entry in ipairs(pendingArr) do
+                            if entry.userId == userId then
+                                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你已提交过申请，请等待审批")
+                                return
+                            end
+                        end
+
+                        -- 提交申请
+                        pendingArr[#pendingArr + 1] = {
+                            userId  = userId,
+                            name    = playerData.name or "无名",
+                            realm   = playerData.realmName or "凡人",
+                            applyAt = os.time(),
+                        }
+                        WriteSharedList(PendingKey(sectId), pendingArr)
+
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, true, "已提交入门申请，等待审批")
+                    end)
+                end,
+                error = function(code, reason)
+                    LogCloudError("GetSect", userId, "sectKey", code, reason)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据读取失败")
+                end,
+            })
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- cancel_apply — 取消申请
+-- ============================================================================
+
+function M.OnCancelApply(userId, eventData)
+    local sectId = eventData["SectId"]:GetString()
+    if sectId == "" then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "无效的宗门")
+        return
+    end
+
+    ReadSharedList(PendingKey(sectId), function(pendingArr, err)
+        if err then
+            LogCloudError("SectOp", userId, "pending", nil, err)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "操作失败，请重试")
+            return
+        end
+        local newArr = {}
+        local found = false
+        for _, entry in ipairs(pendingArr) do
+            if entry.userId == userId then
+                found = true
+            else
+                newArr[#newArr + 1] = entry
+            end
+        end
+        if not found then
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "未找到你的申请")
+            return
+        end
+        WriteSharedList(PendingKey(sectId), newArr)
+        Reply(userId, DataSect.RESP_ACTION.RESULT, true, "已取消申请")
+    end)
+end
+
+-- ============================================================================
+-- get_pending — 获取待审批列表（宗主/长老）
+-- ============================================================================
+
+function M.OnGetPending(userId, eventData)
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.PENDING_LIST, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = playerData.sectId or ""
+            local role   = playerData.sectRole or ""
+            if sectId == "" then
+                Reply(userId, DataSect.RESP_ACTION.PENDING_LIST, false, "你未加入宗门")
+                return
+            end
+
+            if not DataSect.ROLE_PERMISSION.approve[role] then
+                Reply(userId, DataSect.RESP_ACTION.PENDING_LIST, false, "你没有审批权限")
+                return
+            end
+
+            ReadSharedList(PendingKey(sectId), function(pendingArr, err)
+                if err then
+                    LogCloudError("SectRead", userId, "pending", nil, err)
+                    Reply(userId, DataSect.RESP_ACTION.PENDING_LIST, false, "读取失败")
+                    return
+                end
+                Reply(userId, DataSect.RESP_ACTION.PENDING_LIST, true, "", {
+                    Data = Variant(cjson.encode(pendingArr)),
+                })
+            end, pKey)
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.PENDING_LIST, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- approve — 批准入门申请
+-- ============================================================================
+
+function M.OnApprove(userId, eventData)
+    local targetUid = tonumber(eventData["TargetUid"]:GetString()) or 0
+    if targetUid == 0 then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "无效的目标")
+        return
+    end
+
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = playerData.sectId or ""
+            local role   = playerData.sectRole or ""
+            if sectId == "" or not DataSect.ROLE_PERMISSION.approve[role] then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你没有审批权限")
+                return
+            end
+
+            -- 从待审批列表找到该申请（全局键值数组）
+            ReadSharedList(PendingKey(sectId), function(pendingArr, err)
+                if err then
+                    LogCloudError("GetPending", userId, "pending", nil, err)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "读取待审批列表失败")
+                    return
+                end
+
+                local foundEntry = nil
+                local newPending = {}
+                for _, entry in ipairs(pendingArr) do
+                    if entry.userId == targetUid then
+                        foundEntry = entry
+                    else
+                        newPending[#newPending + 1] = entry
+                    end
+                end
+
+                if not foundEntry then
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "未找到该申请")
+                    return
+                end
+
+                -- 检查人数上限
+                serverCloud:Get(SHARED_UID, SectKey(sectId), {
+                    ok = function(sectScores)
+                        local sectInfo = sectScores and sectScores[SectKey(sectId)]
+                        if type(sectInfo) ~= "table" then
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据读取失败")
+                            return
+                        end
+
+                        local maxMembers = DataSect.GetLevelInfo(sectInfo.level or 1).maxMembers
+                        if (sectInfo.memberCount or 0) >= maxMembers then
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门人数已满")
+                            return
+                        end
+
+                        -- 1. 写回待审批列表（已移除该申请）
+                        WriteSharedList(PendingKey(sectId), newPending)
+
+                        -- 2. 添加成员（读-追加-写）
+                        ReadSharedList(MembersKey(sectId), function(membersArr)
+                            membersArr = membersArr or {}
+                            membersArr[#membersArr + 1] = {
+                                userId       = targetUid,
+                                name         = foundEntry.name or "无名",
+                                role         = DataSect.ROLE.MEMBER,
+                                joinedAt     = os.time(),
+                                contribution = 0,
+                            }
+                            WriteSharedList(MembersKey(sectId), membersArr)
+                        end)
+
+                        -- 3. 更新宗门人数
+                        sectInfo.memberCount = (sectInfo.memberCount or 0) + 1
+                        serverCloud:Set(SHARED_UID, SectKey(sectId), sectInfo, {
+                            ok = function() end,
+                            error = function() end,
+                        })
+
+                        -- 4. 更新注册表中的人数
+                        M.UpdateRegistryMemberCount(userId, sectId, sectInfo.memberCount, pKey)
+
+                        -- 5. 更新目标玩家的 playerData（局部字段更新）
+                        UpdatePlayerFields(targetUid, {
+                            sectId   = sectId,
+                            sectName = sectInfo.name,
+                            sectRole = DataSect.ROLE.MEMBER,
+                        }, function() end, pKey)
+
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                            "已批准「" .. (foundEntry.name or "无名") .. "」入门")
+                    end,
+                    error = function(code, reason)
+                        LogCloudError("GetSect", userId, "sectKey", code, reason)
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据读取失败")
+                    end,
+                })
+            end)
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- reject — 拒绝申请
+-- ============================================================================
+
+function M.OnReject(userId, eventData)
+    local targetUid = tonumber(eventData["TargetUid"]:GetString()) or 0
+    if targetUid == 0 then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "无效的目标")
+        return
+    end
+
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = playerData.sectId or ""
+            local role   = playerData.sectRole or ""
+            if sectId == "" or not DataSect.ROLE_PERMISSION.reject[role] then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你没有审批权限")
+                return
+            end
+
+            ReadSharedList(PendingKey(sectId), function(pendingArr, err)
+                if err then
+                    LogCloudError("SectOp", userId, "key", 0, err)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "操作失败")
+                    return
+                end
+                local found = false
+                local newArr = {}
+                for _, p in ipairs(pendingArr) do
+                    if p.userId == targetUid then
+                        found = true
+                    else
+                        newArr[#newArr + 1] = p
+                    end
+                end
+                if not found then
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "未找到该申请")
+                    return
+                end
+                WriteSharedList(PendingKey(sectId), newArr, function(ok2)
+                    if ok2 then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, true, "已拒绝申请")
+                    else
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "操作失败")
+                    end
+                end)
+            end)
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- leave — 退出宗门
+-- ============================================================================
+
+function M.OnLeave(userId, eventData)
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = playerData.sectId or ""
+            local role   = playerData.sectRole or ""
+            if sectId == "" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你未加入宗门")
+                return
+            end
+
+            if role == DataSect.ROLE.LEADER then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗主不能直接退出，请先转让宗主之位")
+                return
+            end
+
+            -- 从成员列表删除
+            M.RemoveMember(userId, sectId, userId, function(ok)
+                if not ok then
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "退出失败，请重试")
+                    return
+                end
+
+                -- 更新宗门人数
+                M.DecrementMemberCount(userId, sectId, pKey)
+
+                -- 清除玩家的宗门信息（局部字段更新）
+                UpdatePlayerFields(userId, {
+                    sectId   = "",
+                    sectName = "",
+                    sectRole = "",
+                }, function(saved)
+                    if saved then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, true, "已退出宗门，回到散修联盟")
+                    else
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, true, "已退出宗门")
+                    end
+                end, pKey)
+            end)
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- kick — 踢出成员
+-- ============================================================================
+
+function M.OnKick(userId, eventData)
+    local targetUid = tonumber(eventData["TargetUid"]:GetString()) or 0
+    if targetUid == 0 or targetUid == userId then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "无效的目标")
+        return
+    end
+
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = playerData.sectId or ""
+            local role   = playerData.sectRole or ""
+            if sectId == "" or not DataSect.ROLE_PERMISSION.kick[role] then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你没有踢人权限")
+                return
+            end
+
+            -- 检查目标是否是成员，且长老不能踢长老/宗主
+            ReadSharedList(MembersKey(sectId), function(membersArr, err)
+                if err then
+                    LogCloudError("GetMembers", userId, "key", 0, err)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "成员列表读取失败")
+                    return
+                end
+
+                local targetMember = nil
+                local newArr = {}
+                for _, m in ipairs(membersArr) do
+                    if m.userId == targetUid then
+                        targetMember = m
+                    else
+                        newArr[#newArr + 1] = m
+                    end
+                end
+
+                if not targetMember then
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "该玩家不在宗门中")
+                    return
+                end
+
+                local targetRole = targetMember.role or ""
+                if targetRole == DataSect.ROLE.LEADER then
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "不能踢出宗主")
+                    return
+                end
+                if role == DataSect.ROLE.ELDER and targetRole == DataSect.ROLE.ELDER then
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "长老不能踢出长老")
+                    return
+                end
+
+                -- 写回去掉目标的成员列表
+                WriteSharedList(MembersKey(sectId), newArr, function(ok2)
+                    if not ok2 then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "踢出操作失败")
+                        return
+                    end
+
+                    -- 更新宗门人数
+                    M.DecrementMemberCount(userId, sectId, pKey)
+
+                    -- 清除目标玩家宗门信息（局部字段更新）
+                    UpdatePlayerFields(targetUid, {
+                        sectId   = "",
+                        sectName = "",
+                        sectRole = "",
+                    }, function() end, pKey)
+
+                    local targetName = targetMember.name or "无名"
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, true, "已将「" .. targetName .. "」逐出宗门")
+                end)
+            end)
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- transfer — 转让宗主
+-- ============================================================================
+
+function M.OnTransfer(userId, eventData)
+    local targetUid = tonumber(eventData["TargetUid"]:GetString()) or 0
+    if targetUid == 0 or targetUid == userId then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "无效的目标")
+        return
+    end
+
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = playerData.sectId or ""
+            local role   = playerData.sectRole or ""
+            if sectId == "" or role ~= DataSect.ROLE.LEADER then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "只有宗主可以转让")
+                return
+            end
+
+            -- 更新成员列表中双方角色
+            ReadSharedList(MembersKey(sectId), function(membersArr, err)
+                if err then
+                    LogCloudError("GetMembers", userId, "key", 0, err)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "成员列表读取失败")
+                    return
+                end
+
+                local myMember, targetMember = nil, nil
+                for _, m in ipairs(membersArr) do
+                    if m.userId == userId then myMember = m end
+                    if m.userId == targetUid then targetMember = m end
+                end
+
+                if not targetMember then
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "该玩家不在宗门中")
+                    return
+                end
+
+                -- 交换角色
+                if myMember then myMember.role = DataSect.ROLE.MEMBER end
+                targetMember.role = DataSect.ROLE.LEADER
+
+                WriteSharedList(MembersKey(sectId), membersArr, function(ok2)
+                    if not ok2 then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "转让操作失败")
+                        return
+                    end
+
+                    -- 更新宗门信息的 leader
+                    serverCloud:Get(SHARED_UID, SectKey(sectId), {
+                        ok = function(sectScores)
+                            local sectInfo = sectScores and sectScores[SectKey(sectId)]
+                            if type(sectInfo) == "table" then
+                                sectInfo.leaderId   = targetUid
+                                sectInfo.leaderName = targetMember.name or "无名"
+                                serverCloud:Set(SHARED_UID, SectKey(sectId), sectInfo, {
+                                    ok = function() end,
+                                    error = function() end,
+                                })
+                                -- 更新注册表
+                                M.UpdateRegistryLeader(userId, sectId, sectInfo.leaderName, pKey)
+                            end
+                        end,
+                        error = function() end,
+                    })
+
+                    -- 更新双方 playerData（局部字段更新）
+                    UpdatePlayerFields(userId, {
+                        sectRole = DataSect.ROLE.MEMBER,
+                    }, function() end, pKey)
+
+                    UpdatePlayerFields(targetUid, {
+                        sectRole = DataSect.ROLE.LEADER,
+                    }, function() end, pKey)
+
+                    local targetName = targetMember.name or "无名"
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                        "已将宗主之位转让给「" .. targetName .. "」")
+                end)
+            end)
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- edit_notice — 编辑公告（P2 预留）
+-- ============================================================================
+
+function M.OnEditNotice(userId, eventData)
+    local notice = eventData["Notice"]:GetString()
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = playerData.sectId or ""
+            local role   = playerData.sectRole or ""
+            if sectId == "" or not DataSect.ROLE_PERMISSION.notice[role] then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你没有编辑公告的权限")
+                return
+            end
+
+            serverCloud:Get(SHARED_UID, SectKey(sectId), {
+                ok = function(sectScores)
+                    local sectInfo = sectScores and sectScores[SectKey(sectId)]
+                    if type(sectInfo) ~= "table" then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据读取失败")
+                        return
+                    end
+
+                    sectInfo.notice = notice
+                    serverCloud:Set(SHARED_UID, SectKey(sectId), sectInfo, {
+                        ok = function()
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, true, "公告已更新")
+                        end,
+                        error = function(code, reason)
+                            LogCloudError("SectSave", userId, "key", code, reason)
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "保存失败")
+                        end,
+                    })
+                end,
+                error = function(code, reason)
+                    LogCloudError("GetSect", userId, "sectKey", code, reason)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据读取失败")
+                end,
+            })
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- upgrade — 升级宗门（宗主）
+-- ============================================================================
+
+function M.OnUpgrade(userId, eventData)
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = playerData.sectId or ""
+            local role   = playerData.sectRole or ""
+            if sectId == "" or role ~= DataSect.ROLE.LEADER then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "只有宗主可以升级宗门")
+                return
+            end
+
+            serverCloud:Get(SHARED_UID, SectKey(sectId), {
+                ok = function(sectScores)
+                    local sectInfo = sectScores and sectScores[SectKey(sectId)]
+                    if type(sectInfo) ~= "table" then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据读取失败")
+                        return
+                    end
+
+                    local curLevel = sectInfo.level or 1
+                    if curLevel >= #DataSect.LEVEL_TABLE then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门已达最高等级")
+                        return
+                    end
+
+                    local nextInfo = DataSect.LEVEL_TABLE[curLevel + 1]
+                    local curContrib = sectInfo.totalContribution or 0
+                    if curContrib < nextInfo.reqContribution then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+                            "宗门贡献不足，需要" .. nextInfo.reqContribution .. "，当前" .. curContrib)
+                        return
+                    end
+
+                    -- 升级
+                    sectInfo.level = curLevel + 1
+                    serverCloud:Set(SHARED_UID, SectKey(sectId), sectInfo, {
+                        ok = function()
+                            -- 更新注册表中的等级
+                            M.UpdateRegistryField(userId, sectId, "level", sectInfo.level, pKey)
+
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                                "宗门升级为「" .. nextInfo.name .. "」！成员上限提升至" .. nextInfo.maxMembers .. "人")
+                        end,
+                        error = function(code, reason)
+                            LogCloudError("SectSave", userId, "key", code, reason)
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "升级保存失败")
+                        end,
+                    })
+                end,
+                error = function(code, reason)
+                    LogCloudError("GetSect", userId, "sectKey", code, reason)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据读取失败")
+                end,
+            })
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- donate — 捐献灵石换贡献
+-- ============================================================================
+
+function M.OnDonate(userId, eventData)
+    local amount = tonumber(eventData["Amount"]:GetString()) or 0
+    if amount < DataSect.DONATE_MIN then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+            "最少捐献" .. DataSect.DONATE_MIN .. "灵石")
+        return
+    end
+    -- 单次请求上限（防超大值传入）
+    amount = math.min(amount, DataSect.DONATE_DAILY_MAX)
+
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local playerData = scores and scores[pKey]
+            if type(playerData) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = playerData.sectId or ""
+            if sectId == "" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你未加入宗门")
+                return
+            end
+
+            -- 每日累计捐献检查（防无限捐）
+            local today = os.date("%Y-%m-%d")
+            playerData.sectDonateLog = playerData.sectDonateLog or {}
+            if playerData.sectDonateLog.date ~= today then
+                playerData.sectDonateLog = { date = today, total = 0 }
+            end
+            local alreadyDonated = playerData.sectDonateLog.total or 0
+            local remaining = DataSect.DONATE_DAILY_MAX - alreadyDonated
+            if remaining <= 0 then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+                    "今日捐献已达上限（" .. DataSect.DONATE_DAILY_MAX .. "灵石/天）")
+                return
+            end
+            -- 实际捐献额不超过今日剩余配额
+            amount = math.min(amount, remaining)
+
+            -- 扣灵石
+            serverCloud.money:Cost(userId, "lingStone", amount, {
+                ok = function()
+                    local contrib = math.floor(amount / DataSect.DONATE_RATE)
+
+                    -- 更新每日累计记录 + 宗门任务进度（局部字段更新，合并写入）
+                    local fieldsToUpdate = {
+                        sectDonateLog = { date = today, total = alreadyDonated + amount },
+                    }
+                    -- 追踪 donate 任务进度（donate 不走 GameOps，需在此处理）
+                    local st = playerData.sectTasks
+                    if st and st.date == today and st.tasks then
+                        local taskChanged = false
+                        for _, task in ipairs(st.tasks) do
+                            if task.action == "donate" and not task.claimed and task.progress < task.target then
+                                task.progress = math.min(task.progress + amount, task.target)
+                                taskChanged = true
+                            end
+                        end
+                        if taskChanged then
+                            fieldsToUpdate.sectTasks = st
+                        end
+                    end
+                    UpdatePlayerFields(userId, fieldsToUpdate, function(ok2)
+                        if not ok2 then
+                            print("[ServerSect] 捐献日志/任务进度保存失败 uid=" .. tostring(userId))
+                        end
+                    end, pKey)
+
+                    -- 增加宗门总贡献
+                    M.AddSectContribution(userId, sectId, contrib, pKey)
+
+                    -- 增加个人贡献
+                    M.AddMemberContribution(userId, sectId, userId, contrib, pKey)
+
+                    -- 获取余额返回
+                    serverCloud.money:Get(userId, {
+                        ok = function(moneys)
+                            local balance = (moneys and moneys["lingStone"]) or 0
+                            local newRemaining = DataSect.DONATE_DAILY_MAX - (alreadyDonated + amount)
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                                "捐献" .. amount .. "灵石，获得" .. contrib .. "贡献（今日剩余额度：" .. newRemaining .. "灵石）", {
+                                Balance = Variant(tostring(balance)),
+                            })
+                        end,
+                        error = function()
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                                "捐献" .. amount .. "灵石，获得" .. contrib .. "贡献")
+                        end,
+                    })
+                end,
+                error = function()
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "灵石不足")
+                end,
+            })
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- get_tasks — 获取今日宗门任务（不存在则生成）
+-- ============================================================================
+
+function M.OnGetTasks(userId, eventData)
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local pd = scores and scores[pKey]
+            if type(pd) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.TASK_LIST, false, "角色数据读取失败")
+                return
+            end
+            local sectId = pd.sectId or ""
+            if sectId == "" then
+                Reply(userId, DataSect.RESP_ACTION.TASK_LIST, false, "你未加入宗门")
+                return
+            end
+
+            local today = os.date("%Y-%m-%d")
+            local st = pd.sectTasks
+            -- 如果今日任务已生成，直接返回
+            if st and st.date == today and st.tasks then
+                Reply(userId, DataSect.RESP_ACTION.TASK_LIST, true, "", {
+                    Data = Variant(cjson.encode(st)),
+                })
+                return
+            end
+
+            -- 生成今日任务：从任务池中随机选 DAILY_TASK_COUNT 个
+            local pool = {}
+            for i, t in ipairs(DataSect.SECT_TASK_POOL) do
+                pool[#pool + 1] = i
+            end
+            -- Fisher-Yates 洗牌
+            for i = #pool, 2, -1 do
+                local j = math.random(1, i)
+                pool[i], pool[j] = pool[j], pool[i]
+            end
+            local tasks = {}
+            local count = math.min(DataSect.DAILY_TASK_COUNT, #pool)
+            for i = 1, count do
+                local t = DataSect.SECT_TASK_POOL[pool[i]]
+                tasks[#tasks + 1] = {
+                    id       = t.id,
+                    name     = t.name,
+                    desc     = t.desc,
+                    action   = t.action,
+                    target   = t.target,
+                    reward   = t.reward,
+                    progress = 0,
+                    claimed  = false,
+                }
+            end
+            local newSt = { date = today, tasks = tasks, allClaimed = false }
+            pd.sectTasks = newSt
+            serverCloud:Set(userId, pKey, pd, {
+                ok = function()
+                    Reply(userId, DataSect.RESP_ACTION.TASK_LIST, true, "", {
+                        Data = Variant(cjson.encode(newSt)),
+                    })
+                end,
+                error = function()
+                    -- 即使保存失败也返回（下次打开会重新生成）
+                    Reply(userId, DataSect.RESP_ACTION.TASK_LIST, true, "", {
+                        Data = Variant(cjson.encode(newSt)),
+                    })
+                end,
+            })
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.TASK_LIST, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- claim_task — 领取单个任务奖励
+-- ============================================================================
+
+function M.OnClaimTask(userId, eventData)
+    local taskId = eventData["TaskId"]:GetString()
+    if taskId == "" then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "无效的任务")
+        return
+    end
+
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local pd = scores and scores[pKey]
+            if type(pd) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+            local sectId = pd.sectId or ""
+            if sectId == "" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你未加入宗门")
+                return
+            end
+
+            local today = os.date("%Y-%m-%d")
+            local st = pd.sectTasks
+            if not st or st.date ~= today or not st.tasks then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "今日任务未生成")
+                return
+            end
+
+            -- 找到对应任务
+            local task = nil
+            for _, t in ipairs(st.tasks) do
+                if t.id == taskId then
+                    task = t
+                    break
+                end
+            end
+            if not task then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "任务不存在")
+                return
+            end
+            if task.claimed then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "奖励已领取")
+                return
+            end
+            if task.progress < task.target then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "任务未完成")
+                return
+            end
+
+            -- 标记已领取
+            task.claimed = true
+            pd.sectTasks = st
+            serverCloud:Set(userId, pKey, pd, {
+                ok = function()
+                    -- 发放贡献奖励
+                    M.AddSectContribution(userId, sectId, task.reward, pKey)
+                    M.AddMemberContribution(userId, sectId, userId, task.reward, pKey)
+
+                    -- 返回更新后的任务列表
+                    Reply(userId, DataSect.RESP_ACTION.TASK_LIST, true,
+                        "领取「" .. task.name .. "」奖励: +" .. task.reward .. "贡献", {
+                        Data = Variant(cjson.encode(st)),
+                    })
+                end,
+                error = function(code, reason)
+                    LogCloudError("SectSave", userId, "key", code, reason)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "保存失败")
+                end,
+            })
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- claim_all — 领取全部完成额外奖励
+-- ============================================================================
+
+function M.OnClaimAll(userId, eventData)
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local pd = scores and scores[pKey]
+            if type(pd) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+            local sectId = pd.sectId or ""
+            if sectId == "" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你未加入宗门")
+                return
+            end
+
+            local today = os.date("%Y-%m-%d")
+            local st = pd.sectTasks
+            if not st or st.date ~= today or not st.tasks then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "今日任务未生成")
+                return
+            end
+            if st.allClaimed then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "额外奖励已领取")
+                return
+            end
+
+            -- 检查是否所有任务都已完成并领取
+            for _, task in ipairs(st.tasks) do
+                if not task.claimed then
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "还有未领取的任务奖励")
+                    return
+                end
+            end
+
+            st.allClaimed = true
+            pd.sectTasks = st
+            serverCloud:Set(userId, pKey, pd, {
+                ok = function()
+                    local bonus = DataSect.TASK_BONUS_ALL
+                    M.AddSectContribution(userId, sectId, bonus, pKey)
+                    M.AddMemberContribution(userId, sectId, userId, bonus, pKey)
+
+                    Reply(userId, DataSect.RESP_ACTION.TASK_LIST, true,
+                        "全部任务完成! 额外奖励: +" .. bonus .. "贡献", {
+                        Data = Variant(cjson.encode(st)),
+                    })
+                end,
+                error = function(code, reason)
+                    LogCloudError("SectSave", userId, "key", code, reason)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "保存失败")
+                end,
+            })
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- 辅助函数
+-- ============================================================================
+
+--- 增加宗门总贡献值
+---@param ownerId number
+---@param sectId string
+---@param amount number
+function M.AddSectContribution(ownerId, sectId, amount, pKey)
+    local ns = BuildServerNamespace(pKey)
+    serverCloud:Get(SHARED_UID, ns.SectKey(sectId), {
+        ok = function(sectScores)
+            local sectInfo = sectScores and sectScores[ns.SectKey(sectId)]
+            if type(sectInfo) == "table" then
+                sectInfo.totalContribution = (sectInfo.totalContribution or 0) + amount
+                serverCloud:Set(SHARED_UID, ns.SectKey(sectId), sectInfo, {
+                    ok = function() end,
+                    error = function() end,
+                })
+            end
+        end,
+        error = function() end,
+    })
+end
+
+--- 增加成员个人贡献（同时累加周贡献）
+---@param ownerId number
+---@param sectId string
+---@param targetUid number
+---@param amount number
+function M.AddMemberContribution(ownerId, sectId, targetUid, amount, pKey)
+    local ns = BuildServerNamespace(pKey)
+    ReadSharedList(ns.MembersKey(sectId), function(membersArr, err)
+        if err then return end
+        local modified = false
+        for _, m in ipairs(membersArr) do
+            if m.userId == targetUid then
+                m.contribution = (m.contribution or 0) + amount
+                m.weeklyContribution = (m.weeklyContribution or 0) + amount
+                modified = true
+                break
+            end
+        end
+        if modified then
+            WriteSharedList(ns.MembersKey(sectId), membersArr)
+        end
+    end)
+end
+
+--- 从成员列表删除指定用户
+---@param ownerId number  list owner
+---@param sectId string
+---@param targetUid number
+---@param callback fun(ok: boolean)
+function M.RemoveMember(ownerId, sectId, targetUid, callback, pKey)
+    local ns = BuildServerNamespace(pKey)
+    ReadSharedList(ns.MembersKey(sectId), function(membersArr, err)
+        if err then
+            callback(false)
+            return
+        end
+        local found = false
+        local newArr = {}
+        for _, m in ipairs(membersArr) do
+            if m.userId == targetUid then
+                found = true
+            else
+                newArr[#newArr + 1] = m
+            end
+        end
+        if not found then
+            callback(false)
+            return
+        end
+        WriteSharedList(ns.MembersKey(sectId), newArr, function(ok)
+            callback(ok)
+        end)
+    end)
+end
+
+--- 减少宗门成员计数
+---@param ownerId number
+---@param sectId string
+function M.DecrementMemberCount(ownerId, sectId, pKey)
+    local ns = BuildServerNamespace(pKey)
+    serverCloud:Get(SHARED_UID, ns.SectKey(sectId), {
+        ok = function(sectScores)
+            local sectInfo = sectScores and sectScores[ns.SectKey(sectId)]
+            if type(sectInfo) == "table" then
+                sectInfo.memberCount = math.max(0, (sectInfo.memberCount or 1) - 1)
+                serverCloud:Set(SHARED_UID, ns.SectKey(sectId), sectInfo, {
+                    ok = function() end,
+                    error = function() end,
+                })
+                M.UpdateRegistryMemberCount(ownerId, sectId, sectInfo.memberCount, pKey)
+            end
+        end,
+        error = function() end,
+    })
+end
+
+--- 更新注册表中的成员数
+---@param ownerId number
+---@param sectId string
+---@param count number
+function M.UpdateRegistryMemberCount(ownerId, sectId, count, pKey)
+    local ns = BuildServerNamespace(pKey)
+    ReadSharedList(ns.registryKey, function(regArr, err)
+        if err then return end
+        local modified = false
+        for _, r in ipairs(regArr) do
+            if r.sectId == sectId then
+                r.memberCount = count
+                modified = true
+                break
+            end
+        end
+        if modified then
+            WriteSharedList(ns.registryKey, regArr)
+        end
+    end)
+end
+
+--- 更新注册表中的指定字段（通用）
+---@param ownerId number
+---@param sectId string
+---@param field string  字段名，如 "level"
+---@param value any     新值
+function M.UpdateRegistryField(ownerId, sectId, field, value, pKey)
+    local ns = BuildServerNamespace(pKey)
+    ReadSharedList(ns.registryKey, function(regArr, err)
+        if err then return end
+        local modified = false
+        for _, r in ipairs(regArr) do
+            if r.sectId == sectId then
+                r[field] = value
+                modified = true
+                break
+            end
+        end
+        if modified then
+            WriteSharedList(ns.registryKey, regArr)
+        end
+    end)
+end
+
+--- 更新注册表中的宗主名
+---@param ownerId number
+---@param sectId string
+---@param leaderName string
+function M.UpdateRegistryLeader(ownerId, sectId, leaderName, pKey)
+    local ns = BuildServerNamespace(pKey)
+    ReadSharedList(ns.registryKey, function(regArr, err)
+        if err then return end
+        local modified = false
+        for _, r in ipairs(regArr) do
+            if r.sectId == sectId then
+                r.leaderName = leaderName
+                modified = true
+                break
+            end
+        end
+        if modified then
+            WriteSharedList(ns.registryKey, regArr)
+        end
+    end)
+end
+
+-- ============================================================================
+-- 每周贡献分配（懒触发 + 幂等）
+-- 在 OnGetInfo 时检测是否跨周，若跨周则结算上周贡献排名并发奖
+-- ============================================================================
+
+--- 获取 ISO 周标识符 "YYYY-Www"（周一开始）
+---@return string
+local function GetWeekId()
+    -- os.date %W 是以周日为起始的周数，改用手动计算 ISO week
+    local t = os.time()
+    local d = os.date("*t", t)
+    -- 周一=1 ... 周日=7
+    local wday = d.wday == 1 and 7 or (d.wday - 1)
+    -- 本周一 0 点
+    local monday = t - (wday - 1) * 86400
+    local mondayDate = os.date("%Y%m%d", monday)
+    return mondayDate  -- 用本周一日期作为周标识，足够简单且幂等
+end
+
+--- 每周贡献分配（幂等：只在 sectInfo.lastWeeklyId ~= 本周时执行）
+---@param ownerId number
+---@param sectId string
+---@param sectInfo table  当前宗门数据（已读取）
+function M.TryWeeklyDistribution(ownerId, sectId, sectInfo, pKey)
+    local ns = BuildServerNamespace(pKey)
+    local thisWeek = GetWeekId()
+    local lastWeek = sectInfo.lastWeeklyId or ""
+
+    -- 同一周内 → 跳过
+    if lastWeek == thisWeek then return end
+
+    -- 如果 lastWeeklyId 为空（从未结算过），仅标记本周，不结算
+    if lastWeek == "" then
+        sectInfo.lastWeeklyId = thisWeek
+        serverCloud:Set(SHARED_UID, ns.SectKey(sectId), sectInfo, {
+            ok = function()
+                print("[ServerSect] 首次标记周: " .. thisWeek .. " sect=" .. sectId)
+            end,
+            error = function() end,
+        })
+        return
+    end
+
+    -- 跨周 → 结算上周贡献排名
+    print("[ServerSect] 触发周贡献结算 sect=" .. sectId .. " lastWeek=" .. lastWeek .. " thisWeek=" .. thisWeek)
+
+    -- 先更新 lastWeeklyId 防止重入（幂等锁）
+    sectInfo.lastWeeklyId = thisWeek
+    serverCloud:Set(SHARED_UID, ns.SectKey(sectId), sectInfo, {
+        ok = function() end,
+        error = function() end,
+    })
+
+    -- 读取成员列表，按 weeklyContribution 排名
+    ReadSharedList(ns.MembersKey(sectId), function(membersArr, err)
+        if err then
+            print("[ServerSect] 周贡献结算失败: 成员列表读取失败 sect=" .. sectId)
+            return
+        end
+        if #membersArr == 0 then return end
+
+        -- 收集有周贡献的成员
+        local ranked = {}
+        for _, m in ipairs(membersArr) do
+            if (m.weeklyContribution or 0) > 0 then
+                ranked[#ranked + 1] = {
+                    userId = m.userId,
+                    name   = m.name or "无名",
+                    wc     = m.weeklyContribution or 0,
+                }
+            end
+        end
+
+        -- 按周贡献降序排序
+        table.sort(ranked, function(a, b) return a.wc > b.wc end)
+
+        -- 保存上周排名结果到 sectInfo（供 UI 查看）
+        local lastRanking = {}
+        for i, r in ipairs(ranked) do
+            lastRanking[#lastRanking + 1] = {
+                rank   = i,
+                userId = r.userId,
+                name   = r.name,
+                weeklyContribution = r.wc,
+            }
+        end
+        sectInfo.lastWeeklyRanking = lastRanking
+        serverCloud:Set(SHARED_UID, SectKey(sectId), sectInfo, {
+            ok = function() end,
+            error = function() end,
+        })
+
+        -- 发奖（前 10 名）
+        for i, r in ipairs(ranked) do
+            local reward = DataSect.GetWeeklyReward(i)
+            if not reward then break end
+
+            -- 发灵石
+            if reward.lingStone > 0 then
+                serverCloud.money:Add(r.userId, "lingStone", reward.lingStone, {
+                    ok = function()
+                        print("[ServerSect] 周奖: rank=" .. i .. " uid=" .. r.userId
+                            .. " +" .. reward.lingStone .. "灵石")
+                    end,
+                    error = function() end,
+                })
+            end
+            -- 发仙石
+            if reward.xianStone and reward.xianStone > 0 then
+                serverCloud.money:Add(r.userId, "xianStone", reward.xianStone, {
+                    ok = function()
+                        print("[ServerSect] 周奖: rank=" .. i .. " uid=" .. r.userId
+                            .. " +" .. reward.xianStone .. "仙石")
+                    end,
+                    error = function() end,
+                })
+            end
+        end
+
+        -- 重置所有成员的 weeklyContribution
+        local needWrite = false
+        for _, m in ipairs(membersArr) do
+            if (m.weeklyContribution or 0) > 0 then
+                m.weeklyContribution = 0
+                needWrite = true
+            end
+        end
+        if needWrite then
+            WriteSharedList(ns.MembersKey(sectId), membersArr)
+        end
+
+        print("[ServerSect] 周贡献结算完成 sect=" .. sectId
+            .. " 参与人数=" .. #ranked)
+    end)
+end
+
+-- ============================================================================
+-- shop_buy — 宗门宝库购买
+-- ============================================================================
+
+function M.OnShopBuy(userId, eventData)
+    local itemId = eventData["ItemId"] and eventData["ItemId"]:GetString() or ""
+    if itemId == "" then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "无效的商品")
+        return
+    end
+
+    local shopItem = DataSect.GetShopItem(itemId)
+    if not shopItem then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "商品不存在")
+        return
+    end
+
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local pd = scores and scores[pKey]
+            if type(pd) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+            local sectId = pd.sectId or ""
+            if sectId == "" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你未加入宗门")
+                return
+            end
+
+            -- 每日购买限制检查
+            local today = os.date("%Y-%m-%d")
+            local shopLog = pd.sectShopLog or {}
+            if shopLog.date ~= today then
+                shopLog = { date = today, items = {} }
+            end
+            if shopItem.dailyLimit then
+                local bought = shopLog.items[itemId] or 0
+                if bought >= shopItem.dailyLimit then
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+                        "今日已购买" .. bought .. "次，上限" .. shopItem.dailyLimit .. "次")
+                    return
+                end
+            end
+
+            -- 读宗门信息 → 检查等级需求
+            serverCloud:Get(SHARED_UID, SectKey(sectId), {
+                ok = function(sectScores)
+                    local sectInfo = sectScores and sectScores[SectKey(sectId)]
+                    if type(sectInfo) ~= "table" then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据读取失败")
+                        return
+                    end
+                    local sectLevel = sectInfo.level or 1
+                    if shopItem.reqLevel and sectLevel < shopItem.reqLevel then
+                        local lvInfo = DataSect.GetLevelInfo(shopItem.reqLevel)
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+                            "需要宗门等级「" .. (lvInfo.name or "") .. "」才能购买")
+                        return
+                    end
+
+                    -- 读成员列表 → 扣贡献
+                    local ownerId = sectInfo.leaderId or userId
+                    ReadSharedList(MembersKey(sectId), function(membersArr, mErr)
+                        if mErr then
+                            LogCloudError("SectRead", userId, "key", 0, mErr)
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "成员数据读取失败")
+                            return
+                        end
+
+                            local myMember = nil
+                            for _, m in ipairs(membersArr) do
+                                if m.userId == userId then
+                                    myMember = m
+                                    break
+                                end
+                            end
+                            if not myMember then
+                                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你不在宗门成员列表中")
+                                return
+                            end
+
+                            local myContrib = myMember.contribution or 0
+                            if myContrib < shopItem.cost then
+                                Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+                                    "贡献不足，需要" .. shopItem.cost .. "，当前" .. myContrib)
+                                return
+                            end
+
+                            -- 扣除贡献
+                            myMember.contribution = myContrib - shopItem.cost
+                            WriteSharedList(MembersKey(sectId), membersArr)
+
+                            -- 更新购买记录
+                            shopLog.items[itemId] = (shopLog.items[itemId] or 0) + 1
+                            UpdatePlayerFields(userId, { sectShopLog = shopLog }, function() end, pKey)
+
+                            -- 发放物品
+                            if shopItem.type == "currency" then
+                                serverCloud.money:Add(userId, shopItem.currency, shopItem.count, {
+                                    ok = function()
+                                        Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                                            "购买成功: " .. shopItem.name)
+                                    end,
+                                    error = function()
+                                        Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                                            "购买成功: " .. shopItem.name)
+                                    end,
+                                })
+                            elseif shopItem.type == "pill" then
+                                PillsHelper.Read(userId, function(pills, errMsg)
+                                    if not pills then pills = {} end
+                                    -- 合并丹药
+                                    local found = false
+                                    local DataItems = require("data_items")
+                                    local pillDef = DataItems.FindPillById(shopItem.pillId)
+                                    local pillName = pillDef and pillDef.name or shopItem.pillId
+                                    for _, p in ipairs(pills) do
+                                        if p.name == pillName then
+                                            p.count = (p.count or 1) + shopItem.count
+                                            found = true
+                                            break
+                                        end
+                                    end
+                                    if not found then
+                                        pills[#pills + 1] = { name = pillName, count = shopItem.count }
+                                    end
+                                    PillsHelper.Write(userId, pills, function()
+                                        Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                                            "购买成功: " .. shopItem.name)
+                                    end, pKey)
+                                end, pKey)
+                            elseif shopItem.type == "bag_item" then
+                                -- 写入 bagItems（重新读最新 pd 避免竞态）
+                                serverCloud:Get(userId, pKey, {
+                                    ok = function(sc2)
+                                        local pd2 = sc2 and sc2[pKey]
+                                        if type(pd2) ~= "table" then pd2 = {} end
+                                        if not pd2.bagItems then pd2.bagItems = {} end
+                                        local merged = false
+                                        for _, bi in ipairs(pd2.bagItems) do
+                                            if bi.name == shopItem.itemName then
+                                                bi.count = (bi.count or 1) + shopItem.count
+                                                merged = true
+                                                break
+                                            end
+                                        end
+                                        if not merged then
+                                            pd2.bagItems[#pd2.bagItems + 1] = {
+                                                name = shopItem.itemName,
+                                                count = shopItem.count,
+                                            }
+                                        end
+                                        serverCloud:Set(userId, pKey, pd2, {
+                                            ok = function()
+                                                Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                                                    "购买成功: " .. shopItem.name)
+                                            end,
+                                            error = function()
+                                                Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                                                    "购买成功: " .. shopItem.name)
+                                            end,
+                                        })
+                                    end,
+                                    error = function()
+                                        Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                                            "购买成功: " .. shopItem.name)
+                                    end,
+                                })
+                            else
+                                Reply(userId, DataSect.RESP_ACTION.RESULT, true,
+                                    "购买成功: " .. shopItem.name)
+                            end
+                    end)
+                end,
+                error = function(code, reason)
+                    LogCloudError("GetSect", userId, "sectKey", code, reason)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据读取失败")
+                end,
+            })
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+-- ============================================================================
+-- realm_enter — 宗门秘境挑战（服务端权威战斗 + 奖励结算）
+-- ============================================================================
+
+--- 服务端秘境战斗模拟
+---@param pAtk number
+---@param pDef number
+---@param pHP number
+---@param pCrit number
+---@param pHit number
+---@param pDodge number
+---@param enemy table
+---@return boolean win, table[] roundsData
+local function RunRealmFight(pAtk, pDef, pHP, pCrit, pHit, pDodge, enemy)
+    local eHP = enemy.hp
+    local eHPMax = enemy.hp
+    local pHPMax = pHP
+    local maxRounds = 20
+    local roundsData = {}
+
+    for r = 1, maxRounds do
+        local round = { num = r, playerHP = 0, enemyHP = 0, finished = false, win = false }
+
+        -- 玩家攻击
+        local pr = DataFormulas.ResolveAttack(
+            { attack = pAtk, hit = pHit, crit = pCrit, skillAtkBonus = 0 },
+            { defense = enemy.defense, dodge = enemy.dodge or 0, hp = eHP }
+        )
+        if pr.hit then eHP = eHP - pr.damage end
+        round.playerAction = { hit = pr.hit, crit = pr.crit, damage = pr.damage }
+
+        if eHP <= 0 then
+            eHP = 0
+            round.playerHP = pHP; round.enemyHP = eHP
+            round.playerHPMax = pHPMax; round.enemyHPMax = eHPMax
+            round.finished = true; round.win = true
+            roundsData[#roundsData + 1] = round
+            return true, roundsData
+        end
+
+        -- 敌方攻击
+        local er = DataFormulas.ResolveAttack(
+            { attack = enemy.attack, hit = enemy.hit or 85, crit = enemy.crit or 5, skillAtkBonus = 0 },
+            { defense = pDef, dodge = pDodge, hp = pHP }
+        )
+        if er.hit then pHP = pHP - er.damage end
+        round.enemyAction = { hit = er.hit, crit = er.crit, damage = er.damage }
+
+        round.playerHP = math.max(0, pHP); round.enemyHP = math.max(0, eHP)
+        round.playerHPMax = pHPMax; round.enemyHPMax = eHPMax
+
+        if pHP <= 0 then
+            round.finished = true; round.win = false
+            roundsData[#roundsData + 1] = round
+            return false, roundsData
+        end
+
+        roundsData[#roundsData + 1] = round
+    end
+
+    return false, roundsData  -- 回合耗尽
+end
+
+--- 生成秘境怪物
+---@param floor number
+---@param diff table 难度配置
+---@return table enemy
+local function MakeRealmEnemy(floor, diff)
+    local base = DataSect.REALM_ENEMY_BASE
+    local grow = DataSect.REALM_FLOOR_GROWTH
+    local scale = diff.enemyScale or 1.0
+    local names = DataSect.REALM_MONSTERS
+    local name = names[math.random(1, #names)] .. "（第" .. floor .. "层）"
+    return {
+        name    = name,
+        attack  = math.floor((base.attack  + floor * grow.attack)  * scale),
+        defense = math.floor((base.defense + floor * grow.defense) * scale),
+        hp      = math.floor((base.hp      + floor * grow.hp)      * scale),
+        hit     = base.hit,
+        dodge   = math.min(30, (base.dodge or 5) + floor * (grow.dodge or 1)),
+        crit    = math.min(25, (base.crit  or 5) + floor * (grow.crit  or 1)),
+    }
+end
+
+function M.OnRealmEnter(userId, eventData)
+    local diffId = eventData["DiffId"] and eventData["DiffId"]:GetString() or ""
+    if diffId == "" then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "未指定秘境难度")
+        return
+    end
+    local diff = DataSect.GetRealmDifficulty(diffId)
+    if not diff then
+        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "未知秘境难度")
+        return
+    end
+
+    local pKey = PlayerKey(eventData)
+    serverCloud:Get(userId, pKey, {
+        ok = function(scores)
+            local pd = scores and scores[pKey]
+            if type(pd) ~= "table" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+                return
+            end
+
+            local sectId = pd.sectId or ""
+            if sectId == "" then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你未加入宗门")
+                return
+            end
+
+            -- 每日次数限制
+            local today = os.date("%Y-%m-%d")
+            local realmLog = pd.sectRealmLog or {}
+            if realmLog.date ~= today then
+                realmLog = { date = today, items = {} }
+            end
+            local used = realmLog.items[diffId] or 0
+            if diff.dailyLimit and used >= diff.dailyLimit then
+                Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+                    "今日" .. diff.name .. "已挑战" .. used .. "次，上限" .. diff.dailyLimit .. "次")
+                return
+            end
+
+            -- 读取宗门信息检查等级
+            serverCloud:Get(SHARED_UID, SectKey(sectId), {
+                ok = function(sectScores)
+                    local sectInfo = sectScores and sectScores[SectKey(sectId)]
+                    if type(sectInfo) ~= "table" then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据不存在")
+                        return
+                    end
+                    local sectLevel = sectInfo.level or 1
+                    if diff.reqLevel and sectLevel < diff.reqLevel then
+                        Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+                            "需要宗门等级" .. diff.reqLevel .. "，当前" .. sectLevel)
+                        return
+                    end
+
+                    -- 读取成员列表，扣贡献
+                    local ownerId = sectInfo.leaderId or userId
+                    ReadSharedList(MembersKey(sectId), function(membersArr, mErr)
+                        if mErr then
+                            LogCloudError("GetMembers", userId, "key", 0, mErr)
+                            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "成员列表读取失败")
+                            return
+                        end
+
+                            local myMember = nil
+                            for _, m in ipairs(membersArr) do
+                                if m.userId == userId then
+                                    myMember = m; break
+                                end
+                            end
+                            if not myMember then
+                                Reply(userId, DataSect.RESP_ACTION.RESULT, false, "你不在成员列表中")
+                                return
+                            end
+                            local contrib = myMember.contribution or 0
+                            if contrib < diff.cost then
+                                Reply(userId, DataSect.RESP_ACTION.RESULT, false,
+                                    "贡献不足（需" .. diff.cost .. "，当前" .. contrib .. "）")
+                                return
+                            end
+
+                            -- 扣贡献
+                            myMember.contribution = contrib - diff.cost
+                            WriteSharedList(MembersKey(sectId), membersArr)
+
+                            -- ====== 服务端战斗模拟 ======
+                            local pAtk   = pd.attack  or 30
+                            local pDef   = pd.defense or 10
+                            local pHP    = pd.hp      or 800
+                            local pCrit  = pd.crit    or 5
+                            local pHit   = pd.hit     or 90
+                            local pDodge = pd.dodge   or 5
+
+                            local fights = {}
+                            local cleared = 0
+                            local alive = true
+
+                            for floor = 1, diff.floors do
+                                if not alive then break end
+                                local enemy = MakeRealmEnemy(floor, diff)
+                                local win, rounds = RunRealmFight(pAtk, pDef, pHP, pCrit, pHit, pDodge, enemy)
+                                fights[#fights + 1] = {
+                                    floor = floor,
+                                    enemy = enemy.name,
+                                    win   = win,
+                                    rounds = rounds,
+                                }
+                                if win then
+                                    cleared = cleared + 1
+                                    -- 玩家 HP 继承到下一层
+                                    local lastRound = rounds[#rounds]
+                                    pHP = lastRound and lastRound.playerHP or pHP
+                                else
+                                    alive = false
+                                end
+                            end
+
+                            -- ====== 计算奖励 ======
+                            local rConf = DataSect.REALM_REWARD_PER_FLOOR
+                            local rScale = diff.rewardScale or 1.0
+                            local rewardLing = math.floor(cleared * rConf.lingStone * rScale)
+                            local rewardContrib = math.floor(cleared * rConf.contribution * rScale)
+                            local bonusItems = {}
+
+                            -- 全通关额外掉落
+                            if cleared >= diff.floors then
+                                for _, b in ipairs(DataSect.REALM_CLEAR_BONUS) do
+                                    if math.random(100) <= b.chance then
+                                        bonusItems[#bonusItems + 1] = {
+                                            type     = b.type,
+                                            pillId   = b.pillId,
+                                            itemName = b.itemName,
+                                            count    = b.count,
+                                            name     = b.name,
+                                        }
+                                    end
+                                end
+                            end
+
+                            -- ====== 发放奖励 ======
+                            -- 1. 灵石
+                            local function Step2_ContribAndItems()
+                                -- 2. 回加贡献
+                                if rewardContrib > 0 then
+                                    myMember.contribution = (myMember.contribution or 0) + rewardContrib
+                                    WriteSharedList(MembersKey(sectId), membersArr)
+                                end
+
+                                -- 3. 更新每日次数
+                                realmLog.items[diffId] = used + 1
+                                UpdatePlayerFields(userId, { sectRealmLog = realmLog }, function() end, pKey)
+
+                                -- 4. 发放额外掉落（丹药 + 背包物品）
+                                local pillsToAdd = {}
+                                local bagToAdd = {}
+                                for _, bi in ipairs(bonusItems) do
+                                    if bi.type == "pill" then
+                                        pillsToAdd[#pillsToAdd + 1] = bi
+                                    elseif bi.type == "bag_item" then
+                                        bagToAdd[#bagToAdd + 1] = bi
+                                    end
+                                end
+
+                                -- 写入丹药
+                                if #pillsToAdd > 0 then
+                                    PillsHelper.Read(userId, function(pills)
+                                        for _, pi in ipairs(pillsToAdd) do
+                                            local found = false
+                                            for _, p in ipairs(pills) do
+                                                if p.id == pi.pillId then
+                                                    p.count = (p.count or 0) + pi.count
+                                                    found = true; break
+                                                end
+                                            end
+                                            if not found then
+                                                pills[#pills + 1] = { id = pi.pillId, count = pi.count }
+                                            end
+                                        end
+                                        PillsHelper.Write(userId, pills, function() end, pKey)
+                                    end, pKey)
+                                end
+
+                                -- 写入背包物品
+                                if #bagToAdd > 0 then
+                                    serverCloud:Get(userId, pKey, {
+                                        ok = function(sc2)
+                                            local pd2 = sc2 and sc2[pKey]
+                                            if type(pd2) ~= "table" then return end
+                                            if not pd2.bagItems then pd2.bagItems = {} end
+                                            for _, bi in ipairs(bagToAdd) do
+                                                HandlerUtils.AddItem(pd2.bagItems, bi.itemName, bi.count)
+                                            end
+                                            serverCloud:Set(userId, pKey, pd2, { ok = function() end })
+                                        end,
+                                    })
+                                end
+
+                                -- 5. 回复客户端
+                                local resultData = {
+                                    diffId       = diffId,
+                                    diffName     = diff.name,
+                                    floors       = diff.floors,
+                                    cleared      = cleared,
+                                    fights       = fights,
+                                    rewardLing   = rewardLing,
+                                    rewardContrib = rewardContrib,
+                                    bonusItems   = bonusItems,
+                                    newContrib   = myMember.contribution or 0,
+                                }
+                                local jsonStr = cjson.encode(resultData)
+                                Reply(userId, DataSect.RESP_ACTION.REALM_RESULT, true, "", {
+                                    Data = Variant(jsonStr),
+                                })
+                            end
+
+                            -- 灵石发放
+                            if rewardLing > 0 then
+                                serverCloud.money:Add(userId, "lingStone", rewardLing, "秘境通关奖励", {
+                                    ok = function() Step2_ContribAndItems() end,
+                                    error = function()
+                                        Step2_ContribAndItems()  -- 灵石失败也继续发放其他
+                                    end,
+                                })
+                            else
+                                Step2_ContribAndItems()
+                            end
+                    end)
+                end,
+                error = function(code, reason)
+                    LogCloudError("GetSect", userId, "sectKey", code, reason)
+                    Reply(userId, DataSect.RESP_ACTION.RESULT, false, "宗门数据读取失败")
+                end,
+            })
+        end,
+        error = function(code, reason)
+            LogCloudError("GetPlayer", userId, pKey, code, reason)
+            Reply(userId, DataSect.RESP_ACTION.RESULT, false, "角色数据读取失败")
+        end,
+    })
+end
+
+return M

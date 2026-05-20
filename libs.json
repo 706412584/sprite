@@ -1,0 +1,6 @@
+{
+	"lib_game_options": "script_libs/lib_game_options",
+	"gamesystemui": "GameSystemUI",
+	"lib_backend_msg": "script_libs/lib_backend_msg",
+	"smallcard_store": "script_libs/smallcard_store"
+}

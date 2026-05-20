@@ -1,0 +1,16 @@
+﻿{
+  "$id": "$01K4PKZB2W7KXGW5ZYK3CSJXM7",
+  "Root": {
+    "$inherit": "$01KKRHB98YJKHC0SMPTQWEA7KC.Root" /*$gamesparkcore.ScopeDataTemplate.GameDataScene.SceneTemplate.Root*/,
+    "DefaultCamera": "$01KJSGZE83VCET7WP7DTXNJH4S.Root" /*$gamesparkcore.ScopeData.GameDataCamera.DefaultCamera.Root*/,
+    "HostedSceneTag": "new_scene",
+    "Name": "默认场景",
+    "Path": "new_scene",
+    "PlacedPlayerObjects": {},
+    "PlacedSceneShapes": {},
+    "Size": {
+      "X": 8192,
+      "Y": 8192
+    }
+  }
+}
