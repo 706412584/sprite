@@ -23,16 +23,16 @@ public static class JungleAdventure2DScreen
     {
         var nodes = new Dictionary<string, Control>();
         var gamescene2d_ztj183re = LayoutEditorSpark2Runtime.Register(nodes, "gamescene2d_ztj183re", new Panel());
-        // È«ÆÁ¸²¸Ç3D³¡¾°
+        // å…¨å±å¡«å……ï¼Œéšè—3Dåœºæ™¯
         gamescene2d_ztj183re.HorizontalAlignment = HorizontalAlignment.Stretch;
         gamescene2d_ztj183re.VerticalAlignment = VerticalAlignment.Stretch;
-        gamescene2d_ztj183re.Width = 0f;  // Ê¹ÓÃStretchÊ±ÉèÎª0
+        gamescene2d_ztj183re.Width = 0f;  // ä½¿ç”¨Stretchæ—¶è®¾ä¸º0
         gamescene2d_ztj183re.Height = 0f;
         gamescene2d_ztj183re.WidthStretchRatio = 1f;
         gamescene2d_ztj183re.HeightStretchRatio = 1f;
-        gamescene2d_ztj183re.Background = new SolidColorBrush(Color.FromArgb(255, 12, 26, 46)); // ²»Í¸Ã÷±³¾°¸²¸Ç3D
-        // 2D ³¡¾°: ĞÇ»ğ2.0 Ê¹ÓÃ CanvasAnimated + Physics2D ¼Ü¹¹
-        // SceneGraph ¹ÜÀíÎïÀíÊÀ½ç£¨²»äÖÈ¾£©£¬CanvasAnimated ¸ºÔğäÖÈ¾
+        gamescene2d_ztj183re.Background = new SolidColorBrush(Color.FromArgb(255, 12, 26, 46)); // ä¸é€æ˜èƒŒæ™¯é®æŒ¡3D
+        // 2D åœºæ™¯: æ˜Ÿç«2.0 ä½¿ç”¨ CanvasAnimated + Physics2D æ¶æ„
+        // SceneGraph ä¼šå¯¼è‡´åŸç”Ÿå´©æºƒï¼ˆå»¶è¿Ÿæ¸²æŸ“ï¼‰ï¼Œç”¨CanvasAnimated å³æ—¶æ¸²æŸ“
         LayoutEditorSpark2Runtime.ConfigureGameScene2D(gamescene2d_ztj183re, new GameScene2DConfig
         {
             Gravity = 900f,
@@ -46,14 +46,15 @@ public static class JungleAdventure2DScreen
         gradientblock_mwjzd5fu.VerticalAlignment = VerticalAlignment.Top;
         gradientblock_mwjzd5fu.Width = 960f;
         gradientblock_mwjzd5fu.Height = 540f;
-        gradientblock_mwjzd5fu.Visible = false; // Òş²Ø£¬±³¾°ÔÚCanvasÖĞ»æÖÆ
+        gradientblock_mwjzd5fu.Visible = false; // éšè—ï¼Œç”±ä¸»Canvasä¸­ç»˜åˆ¶
+
         var image_i0rdvtg5 = LayoutEditorSpark2Runtime.Register(nodes, "image_i0rdvtg5", LayoutEditorSpark2Runtime.CreateImageCard("image_i0rdvtg5", LayoutEditorSpark2Runtime.Asset("./assets/game2d/sheets/mossy_hills.png"), 960f, 540f, LayoutEditorSpark2Runtime.Color(80, 16, 16, 18), 8f));
         image_i0rdvtg5.Parent = gamescene2d_ztj183re;
         image_i0rdvtg5.HorizontalAlignment = HorizontalAlignment.Left;
         image_i0rdvtg5.VerticalAlignment = VerticalAlignment.Top;
         image_i0rdvtg5.Width = 960f;
         image_i0rdvtg5.Height = 540f;
-        image_i0rdvtg5.Visible = false; // Òş²Ø£¬±³¾°ÔÚCanvasÖĞ»æÖÆ
+        image_i0rdvtg5.Visible = false; // éšè—ï¼Œç”±ä¸»Canvasä¸­ç»˜åˆ¶
         var spriteanimation_ys7k64aa = LayoutEditorSpark2Runtime.Register(nodes, "spriteanimation_ys7k64aa", new Panel());
         spriteanimation_ys7k64aa.Parent = gamescene2d_ztj183re;
         spriteanimation_ys7k64aa.HorizontalAlignment = HorizontalAlignment.Left;
@@ -61,9 +62,9 @@ public static class JungleAdventure2DScreen
         spriteanimation_ys7k64aa.Margin = new Thickness(10f, 420f, 0f, 0f); // deco_plant1: left=10, top=420
         spriteanimation_ys7k64aa.Width = 80f;
         spriteanimation_ys7k64aa.Height = 80f;
-        spriteanimation_ys7k64aa.Visible = false; // Òş²ØPanel£¬Í¨¹ıCanvas»æÖÆ
-        // Ö¡¶¯»­: Ê¹ÓÃ AnimatedImageSource ÔÚ Canvas ÉÏ»æÖÆ
-        // ĞèÒªÔÚÊı¾İ±à¼­Æ÷ÖĞ¶¨Òå GameDataAnimatedImage ×ÊÔ´
+        spriteanimation_ys7k64aa.Visible = false; // éšè—Panelï¼Œé€šè¿‡Canvasç»˜åˆ¶
+        // å¸§åŠ¨ç”»: ä½¿ç”¨ AnimatedImageSource åœ¨ Canvas ä¸Šç»˜åˆ¶
+        // éœ€è¦åœ¨æ•°æ®ç¼–è¾‘å™¨ä¸­å®šä¹‰ GameDataAnimatedImage èµ„æº
         LayoutEditorSpark2Runtime.ConfigureSpriteAnimation(spriteanimation_ys7k64aa, new SpriteAnimationConfig
         {
             ImageAsset = LayoutEditorSpark2Runtime.Asset("./assets/game2d/sheets/plant1.png"),
@@ -83,9 +84,8 @@ public static class JungleAdventure2DScreen
         spriteanimation_5lcymdot.Margin = new Thickness(200f, 440f, 0f, 0f); // deco_plant2: left=200, top=440
         spriteanimation_5lcymdot.Width = 60f;
         spriteanimation_5lcymdot.Height = 60f;
-        spriteanimation_5lcymdot.Visible = false; // Òş²ØPanel£¬Í¨¹ıCanvas»æÖÆ
-        // Ö¡¶¯»­: Ê¹ÓÃ AnimatedImageSource ÔÚ Canvas ÉÏ»æÖÆ
-        // ĞèÒªÔÚÊı¾İ±à¼­Æ÷ÖĞ¶¨Òå GameDataAnimatedImage ×ÊÔ´
+        spriteanimation_5lcymdot.Visible = false; // éšè—Panelï¼Œé€šè¿‡Canvasç»˜åˆ¶
+        // å¸§åŠ¨ç”»: ä½¿ç”¨ AnimatedImageSource åœ¨ Canvas ä¸Šç»˜åˆ¶
         LayoutEditorSpark2Runtime.ConfigureSpriteAnimation(spriteanimation_5lcymdot, new SpriteAnimationConfig
         {
             ImageAsset = LayoutEditorSpark2Runtime.Asset("./assets/game2d/sheets/plant1.png"),
@@ -98,6 +98,7 @@ public static class JungleAdventure2DScreen
             Autoplay = true,
             DefaultAnimation = "idle",
         });
+
         var spriteanimation_5llm3r4r = LayoutEditorSpark2Runtime.Register(nodes, "spriteanimation_5llm3r4r", new Panel());
         spriteanimation_5llm3r4r.Parent = gamescene2d_ztj183re;
         spriteanimation_5llm3r4r.HorizontalAlignment = HorizontalAlignment.Left;
@@ -105,9 +106,8 @@ public static class JungleAdventure2DScreen
         spriteanimation_5llm3r4r.Margin = new Thickness(480f, 430f, 0f, 0f); // deco_plant3: left=480, top=430
         spriteanimation_5llm3r4r.Width = 70f;
         spriteanimation_5llm3r4r.Height = 70f;
-        spriteanimation_5llm3r4r.Visible = false; // Òş²ØPanel£¬Í¨¹ıCanvas»æÖÆ
-        // Ö¡¶¯»­: Ê¹ÓÃ AnimatedImageSource ÔÚ Canvas ÉÏ»æÖÆ
-        // ĞèÒªÔÚÊı¾İ±à¼­Æ÷ÖĞ¶¨Òå GameDataAnimatedImage ×ÊÔ´
+        spriteanimation_5llm3r4r.Visible = false; // éšè—Panelï¼Œé€šè¿‡Canvasç»˜åˆ¶
+        // å¸§åŠ¨ç”»: ä½¿ç”¨ AnimatedImageSource åœ¨ Canvas ä¸Šç»˜åˆ¶
         LayoutEditorSpark2Runtime.ConfigureSpriteAnimation(spriteanimation_5llm3r4r, new SpriteAnimationConfig
         {
             ImageAsset = LayoutEditorSpark2Runtime.Asset("./assets/game2d/sheets/plant_poison.png"),
@@ -127,9 +127,8 @@ public static class JungleAdventure2DScreen
         spriteanimation_y2x5fomx.Margin = new Thickness(850f, 450f, 0f, 0f); // deco_plant4: left=850, top=450
         spriteanimation_y2x5fomx.Width = 50f;
         spriteanimation_y2x5fomx.Height = 50f;
-        spriteanimation_y2x5fomx.Visible = false; // Òş²ØPanel£¬Í¨¹ıCanvas»æÖÆ
-        // Ö¡¶¯»­: Ê¹ÓÃ AnimatedImageSource ÔÚ Canvas ÉÏ»æÖÆ
-        // ĞèÒªÔÚÊı¾İ±à¼­Æ÷ÖĞ¶¨Òå GameDataAnimatedImage ×ÊÔ´
+        spriteanimation_y2x5fomx.Visible = false; // éšè—Panelï¼Œé€šè¿‡Canvasç»˜åˆ¶
+        // å¸§åŠ¨ç”»: ä½¿ç”¨ AnimatedImageSource åœ¨ Canvas ä¸Šç»˜åˆ¶
         LayoutEditorSpark2Runtime.ConfigureSpriteAnimation(spriteanimation_y2x5fomx, new SpriteAnimationConfig
         {
             ImageAsset = LayoutEditorSpark2Runtime.Asset("./assets/game2d/sheets/plant1.png"),
@@ -149,9 +148,8 @@ public static class JungleAdventure2DScreen
         spriteanimation_m6mj18dd.Margin = new Thickness(680f, 440f, 0f, 0f); // deco_plant5: left=680, top=440
         spriteanimation_m6mj18dd.Width = 55f;
         spriteanimation_m6mj18dd.Height = 55f;
-        spriteanimation_m6mj18dd.Visible = false; // Òş²ØPanel£¬Í¨¹ıCanvas»æÖÆ
-        // Ö¡¶¯»­: Ê¹ÓÃ AnimatedImageSource ÔÚ Canvas ÉÏ»æÖÆ
-        // ĞèÒªÔÚÊı¾İ±à¼­Æ÷ÖĞ¶¨Òå GameDataAnimatedImage ×ÊÔ´
+        spriteanimation_m6mj18dd.Visible = false; // éšè—Panelï¼Œé€šè¿‡Canvasç»˜åˆ¶
+        // å¸§åŠ¨ç”»: ä½¿ç”¨ AnimatedImageSource åœ¨ Canvas ä¸Šç»˜åˆ¶
         LayoutEditorSpark2Runtime.ConfigureSpriteAnimation(spriteanimation_m6mj18dd, new SpriteAnimationConfig
         {
             ImageAsset = LayoutEditorSpark2Runtime.Asset("./assets/game2d/sheets/plant_poison.png"),
@@ -164,6 +162,8 @@ public static class JungleAdventure2DScreen
             Autoplay = true,
             DefaultAnimation = "idle",
         });
+
+        // åœ°é¢ç¢°æ’ä½“
         var collider2d_zypn0bay = LayoutEditorSpark2Runtime.Register(nodes, "collider2d_zypn0bay", new Panel());
         collider2d_zypn0bay.Parent = gamescene2d_ztj183re;
         collider2d_zypn0bay.HorizontalAlignment = HorizontalAlignment.Left;
@@ -171,7 +171,7 @@ public static class JungleAdventure2DScreen
         collider2d_zypn0bay.Margin = new Thickness(0f, 500f, 0f, 0f); // ground: left=0, top=500
         collider2d_zypn0bay.Width = 960f;
         collider2d_zypn0bay.Height = 40f;
-        // Åö×²Ìå: RigidBody2D(Static) + CollisionBox2D
+        // ç¢°æ’ä½“: RigidBody2D(Static) + CollisionBox2D
         LayoutEditorSpark2Runtime.ConfigureCollider2D(collider2d_zypn0bay, new Collider2DConfig
         {
             Shape = "rect",
@@ -195,6 +195,8 @@ public static class JungleAdventure2DScreen
         shapeline_g7jeu764.Margin = new Thickness(0f, 498f, 0f, 0f); // grass_line: left=0, top=498
         shapeline_g7jeu764.Width = 960f;
         shapeline_g7jeu764.Height = 3f;
+
+        // å¹³å°1ç¢°æ’ä½“
         var collider2d_m1a21kdw = LayoutEditorSpark2Runtime.Register(nodes, "collider2d_m1a21kdw", new Panel());
         collider2d_m1a21kdw.Parent = gamescene2d_ztj183re;
         collider2d_m1a21kdw.HorizontalAlignment = HorizontalAlignment.Left;
@@ -202,7 +204,7 @@ public static class JungleAdventure2DScreen
         collider2d_m1a21kdw.Margin = new Thickness(120f, 390f, 0f, 0f); // plat1: left=120, top=390
         collider2d_m1a21kdw.Width = 160f;
         collider2d_m1a21kdw.Height = 20f;
-        // Åö×²Ìå: RigidBody2D(Static) + CollisionBox2D
+        // ç¢°æ’ä½“: RigidBody2D(Static) + CollisionBox2D
         LayoutEditorSpark2Runtime.ConfigureCollider2D(collider2d_m1a21kdw, new Collider2DConfig
         {
             Shape = "rect",
@@ -219,6 +221,8 @@ public static class JungleAdventure2DScreen
         shaperect_ei19bp0i.Margin = new Thickness(120f, 390f, 0f, 0f); // plat1_v: left=120, top=390
         shaperect_ei19bp0i.Width = 160f;
         shaperect_ei19bp0i.Height = 20f;
+
+        // å¹³å°2ç¢°æ’ä½“
         var collider2d_48uj6zky = LayoutEditorSpark2Runtime.Register(nodes, "collider2d_48uj6zky", new Panel());
         collider2d_48uj6zky.Parent = gamescene2d_ztj183re;
         collider2d_48uj6zky.HorizontalAlignment = HorizontalAlignment.Left;
@@ -226,7 +230,7 @@ public static class JungleAdventure2DScreen
         collider2d_48uj6zky.Margin = new Thickness(380f, 310f, 0f, 0f); // plat2: left=380, top=310
         collider2d_48uj6zky.Width = 130f;
         collider2d_48uj6zky.Height = 20f;
-        // Åö×²Ìå: RigidBody2D(Static) + CollisionBox2D
+        // ç¢°æ’ä½“: RigidBody2D(Static) + CollisionBox2D
         LayoutEditorSpark2Runtime.ConfigureCollider2D(collider2d_48uj6zky, new Collider2DConfig
         {
             Shape = "rect",
@@ -243,6 +247,8 @@ public static class JungleAdventure2DScreen
         shaperect_k0cgbwn3.Margin = new Thickness(380f, 310f, 0f, 0f); // plat2_v: left=380, top=310
         shaperect_k0cgbwn3.Width = 130f;
         shaperect_k0cgbwn3.Height = 20f;
+
+        // å¹³å°3ç¢°æ’ä½“
         var collider2d_3w390iej = LayoutEditorSpark2Runtime.Register(nodes, "collider2d_3w390iej", new Panel());
         collider2d_3w390iej.Parent = gamescene2d_ztj183re;
         collider2d_3w390iej.HorizontalAlignment = HorizontalAlignment.Left;
@@ -250,7 +256,7 @@ public static class JungleAdventure2DScreen
         collider2d_3w390iej.Margin = new Thickness(620f, 240f, 0f, 0f); // plat3: left=620, top=240
         collider2d_3w390iej.Width = 140f;
         collider2d_3w390iej.Height = 20f;
-        // Åö×²Ìå: RigidBody2D(Static) + CollisionBox2D
+        // ç¢°æ’ä½“: RigidBody2D(Static) + CollisionBox2D
         LayoutEditorSpark2Runtime.ConfigureCollider2D(collider2d_3w390iej, new Collider2DConfig
         {
             Shape = "rect",
@@ -267,6 +273,8 @@ public static class JungleAdventure2DScreen
         shaperect_nuf5zzj0.Margin = new Thickness(620f, 240f, 0f, 0f); // plat3_v: left=620, top=240
         shaperect_nuf5zzj0.Width = 140f;
         shaperect_nuf5zzj0.Height = 20f;
+
+        // å¹³å°4ç¢°æ’ä½“
         var collider2d_9m8ogd4r = LayoutEditorSpark2Runtime.Register(nodes, "collider2d_9m8ogd4r", new Panel());
         collider2d_9m8ogd4r.Parent = gamescene2d_ztj183re;
         collider2d_9m8ogd4r.HorizontalAlignment = HorizontalAlignment.Left;
@@ -274,7 +282,7 @@ public static class JungleAdventure2DScreen
         collider2d_9m8ogd4r.Margin = new Thickness(800f, 370f, 0f, 0f); // plat4: left=800, top=370
         collider2d_9m8ogd4r.Width = 100f;
         collider2d_9m8ogd4r.Height = 20f;
-        // Åö×²Ìå: RigidBody2D(Static) + CollisionBox2D
+        // ç¢°æ’ä½“: RigidBody2D(Static) + CollisionBox2D
         LayoutEditorSpark2Runtime.ConfigureCollider2D(collider2d_9m8ogd4r, new Collider2DConfig
         {
             Shape = "rect",
@@ -291,6 +299,8 @@ public static class JungleAdventure2DScreen
         shaperect_9kb47ul0.Margin = new Thickness(800f, 370f, 0f, 0f); // plat4_v: left=800, top=370
         shaperect_9kb47ul0.Width = 100f;
         shaperect_9kb47ul0.Height = 20f;
+
+        // æ•Œäºº1 (æ©™è‰²å²è±å§†)
         var spriteanimation_6g23g0o8 = LayoutEditorSpark2Runtime.Register(nodes, "spriteanimation_6g23g0o8", new Panel());
         spriteanimation_6g23g0o8.Parent = gamescene2d_ztj183re;
         spriteanimation_6g23g0o8.HorizontalAlignment = HorizontalAlignment.Left;
@@ -298,9 +308,8 @@ public static class JungleAdventure2DScreen
         spriteanimation_6g23g0o8.Margin = new Thickness(300f, 442f, 0f, 0f); // enemy1: left=300, top=442
         spriteanimation_6g23g0o8.Width = 72f;
         spriteanimation_6g23g0o8.Height = 58f;
-        spriteanimation_6g23g0o8.Visible = false; // Òş²ØPanel£¬Í¨¹ıCanvas»æÖÆ
-        // Ö¡¶¯»­: Ê¹ÓÃ AnimatedImageSource ÔÚ Canvas ÉÏ»æÖÆ
-        // ĞèÒªÔÚÊı¾İ±à¼­Æ÷ÖĞ¶¨Òå GameDataAnimatedImage ×ÊÔ´
+        spriteanimation_6g23g0o8.Visible = false; // éšè—Panelï¼Œé€šè¿‡Canvasç»˜åˆ¶
+        // å¸§åŠ¨ç”»: ä½¿ç”¨ AnimatedImageSource åœ¨ Canvas ä¸Šç»˜åˆ¶
         LayoutEditorSpark2Runtime.ConfigureSpriteAnimation(spriteanimation_6g23g0o8, new SpriteAnimationConfig
         {
             ImageAsset = LayoutEditorSpark2Runtime.Asset("./assets/game2d/sheets/slime_orange.png"),
@@ -320,7 +329,7 @@ public static class JungleAdventure2DScreen
         collider2d_ex6ai4yz.Margin = new Thickness(306f, 447f, 0f, 0f); // enemy1_col: left=306, top=447
         collider2d_ex6ai4yz.Width = 60f;
         collider2d_ex6ai4yz.Height = 48f;
-        // Åö×²Ìå: RigidBody2D(Static) + CollisionBox2D
+        // ç¢°æ’ä½“: RigidBody2D(Static) + CollisionBox2D (è§¦å‘å™¨)
         LayoutEditorSpark2Runtime.ConfigureCollider2D(collider2d_ex6ai4yz, new Collider2DConfig
         {
             Shape = "rect",
@@ -330,6 +339,8 @@ public static class JungleAdventure2DScreen
             Friction = 0.5f,
             Tag = "enemy",
         });
+
+        // æ•Œäºº2 (ç»¿è‰²å²è±å§†)
         var spriteanimation_9m1aubjh = LayoutEditorSpark2Runtime.Register(nodes, "spriteanimation_9m1aubjh", new Panel());
         spriteanimation_9m1aubjh.Parent = gamescene2d_ztj183re;
         spriteanimation_9m1aubjh.HorizontalAlignment = HorizontalAlignment.Left;
@@ -337,9 +348,8 @@ public static class JungleAdventure2DScreen
         spriteanimation_9m1aubjh.Margin = new Thickness(540f, 456f, 0f, 0f); // enemy2: left=540, top=456
         spriteanimation_9m1aubjh.Width = 64f;
         spriteanimation_9m1aubjh.Height = 44f;
-        spriteanimation_9m1aubjh.Visible = false; // Òş²ØPanel£¬Í¨¹ıCanvas»æÖÆ
-        // Ö¡¶¯»­: Ê¹ÓÃ AnimatedImageSource ÔÚ Canvas ÉÏ»æÖÆ
-        // ĞèÒªÔÚÊı¾İ±à¼­Æ÷ÖĞ¶¨Òå GameDataAnimatedImage ×ÊÔ´
+        spriteanimation_9m1aubjh.Visible = false; // éšè—Panelï¼Œé€šè¿‡Canvasç»˜åˆ¶
+        // å¸§åŠ¨ç”»: ä½¿ç”¨ AnimatedImageSource åœ¨ Canvas ä¸Šç»˜åˆ¶
         LayoutEditorSpark2Runtime.ConfigureSpriteAnimation(spriteanimation_9m1aubjh, new SpriteAnimationConfig
         {
             ImageAsset = LayoutEditorSpark2Runtime.Asset("./assets/game2d/sheets/slime_green.png"),
@@ -359,7 +369,7 @@ public static class JungleAdventure2DScreen
         collider2d_sqwpkl9x.Margin = new Thickness(546f, 460f, 0f, 0f); // enemy2_col: left=546, top=460
         collider2d_sqwpkl9x.Width = 52f;
         collider2d_sqwpkl9x.Height = 36f;
-        // Åö×²Ìå: RigidBody2D(Static) + CollisionBox2D
+        // ç¢°æ’ä½“: RigidBody2D(Static) + CollisionBox2D (è§¦å‘å™¨)
         LayoutEditorSpark2Runtime.ConfigureCollider2D(collider2d_sqwpkl9x, new Collider2DConfig
         {
             Shape = "rect",
@@ -369,6 +379,8 @@ public static class JungleAdventure2DScreen
             Friction = 0.5f,
             Tag = "enemy",
         });
+
+        // æ•Œäºº3 (å¹³å°ä¸Šçš„æ©™è‰²å²è±å§†)
         var spriteanimation_ehzwzr2b = LayoutEditorSpark2Runtime.Register(nodes, "spriteanimation_ehzwzr2b", new Panel());
         spriteanimation_ehzwzr2b.Parent = gamescene2d_ztj183re;
         spriteanimation_ehzwzr2b.HorizontalAlignment = HorizontalAlignment.Left;
@@ -376,9 +388,8 @@ public static class JungleAdventure2DScreen
         spriteanimation_ehzwzr2b.Margin = new Thickness(660f, 195f, 0f, 0f); // enemy3: left=660, top=195
         spriteanimation_ehzwzr2b.Width = 56f;
         spriteanimation_ehzwzr2b.Height = 45f;
-        spriteanimation_ehzwzr2b.Visible = false; // Òş²ØPanel£¬Í¨¹ıCanvas»æÖÆ
-        // Ö¡¶¯»­: Ê¹ÓÃ AnimatedImageSource ÔÚ Canvas ÉÏ»æÖÆ
-        // ĞèÒªÔÚÊı¾İ±à¼­Æ÷ÖĞ¶¨Òå GameDataAnimatedImage ×ÊÔ´
+        spriteanimation_ehzwzr2b.Visible = false; // éšè—Panelï¼Œé€šè¿‡Canvasç»˜åˆ¶
+        // å¸§åŠ¨ç”»: ä½¿ç”¨ AnimatedImageSource åœ¨ Canvas ä¸Šç»˜åˆ¶
         LayoutEditorSpark2Runtime.ConfigureSpriteAnimation(spriteanimation_ehzwzr2b, new SpriteAnimationConfig
         {
             ImageAsset = LayoutEditorSpark2Runtime.Asset("./assets/game2d/sheets/slime_orange.png"),
@@ -398,7 +409,7 @@ public static class JungleAdventure2DScreen
         collider2d_ehc99f42.Margin = new Thickness(666f, 200f, 0f, 0f); // enemy3_col: left=666, top=200
         collider2d_ehc99f42.Width = 44f;
         collider2d_ehc99f42.Height = 36f;
-        // Åö×²Ìå: RigidBody2D(Static) + CollisionBox2D
+        // ç¢°æ’ä½“: RigidBody2D(Static) + CollisionBox2D (è§¦å‘å™¨)
         LayoutEditorSpark2Runtime.ConfigureCollider2D(collider2d_ehc99f42, new Collider2DConfig
         {
             Shape = "rect",
@@ -408,6 +419,8 @@ public static class JungleAdventure2DScreen
             Friction = 0.5f,
             Tag = "enemy",
         });
+
+        // ç©å®¶è§’è‰²æ§åˆ¶å™¨ (æ³•å¸ˆ)
         var charactercontroller2d_pgrzbdex = LayoutEditorSpark2Runtime.Register(nodes, "charactercontroller2d_pgrzbdex", new Panel());
         charactercontroller2d_pgrzbdex.Parent = gamescene2d_ztj183re;
         charactercontroller2d_pgrzbdex.HorizontalAlignment = HorizontalAlignment.Left;
@@ -415,7 +428,7 @@ public static class JungleAdventure2DScreen
         charactercontroller2d_pgrzbdex.Margin = new Thickness(60f, 404f, 0f, 0f); // player: left=60, top=404
         charactercontroller2d_pgrzbdex.Width = 96f;
         charactercontroller2d_pgrzbdex.Height = 96f;
-        // ½ÇÉ«¿ØÖÆÆ÷: RigidBody2D(Dynamic) + AnimatedImageSource Ö¡¶¯»­
+        // è§’è‰²æ§åˆ¶å™¨: RigidBody2D(Dynamic) + AnimatedImageSource å¸§åŠ¨ç”»
         LayoutEditorSpark2Runtime.ConfigureCharacterController2D(charactercontroller2d_pgrzbdex, new CharacterController2DConfig
         {
             Speed = 200f,
@@ -424,6 +437,8 @@ public static class JungleAdventure2DScreen
             CurrentAnimation = "idle",
             BodyType = "Dynamic",
         });
+
+        // å†²åˆºç‰¹æ•ˆ
         var spriteanimation_wuq4e93w = LayoutEditorSpark2Runtime.Register(nodes, "spriteanimation_wuq4e93w", new Panel());
         spriteanimation_wuq4e93w.Parent = gamescene2d_ztj183re;
         spriteanimation_wuq4e93w.HorizontalAlignment = HorizontalAlignment.Left;
@@ -431,9 +446,8 @@ public static class JungleAdventure2DScreen
         spriteanimation_wuq4e93w.Margin = new Thickness(140f, 420f, 0f, 0f); // dash_fx: left=140, top=420
         spriteanimation_wuq4e93w.Width = 64f;
         spriteanimation_wuq4e93w.Height = 64f;
-        spriteanimation_wuq4e93w.Visible = false; // Òş²ØPanel£¬Í¨¹ıCanvas»æÖÆ
-        // Ö¡¶¯»­: Ê¹ÓÃ AnimatedImageSource ÔÚ Canvas ÉÏ»æÖÆ
-        // ĞèÒªÔÚÊı¾İ±à¼­Æ÷ÖĞ¶¨Òå GameDataAnimatedImage ×ÊÔ´
+        spriteanimation_wuq4e93w.Visible = false; // éšè—Panelï¼Œé€šè¿‡Canvasç»˜åˆ¶
+        // å¸§åŠ¨ç”»: ä½¿ç”¨ AnimatedImageSource åœ¨ Canvas ä¸Šç»˜åˆ¶
         LayoutEditorSpark2Runtime.ConfigureSpriteAnimation(spriteanimation_wuq4e93w, new SpriteAnimationConfig
         {
             ImageAsset = LayoutEditorSpark2Runtime.Asset("./assets/game2d/sheets/wizard_dash_fx.png"),
@@ -446,6 +460,8 @@ public static class JungleAdventure2DScreen
             Autoplay = true,
             DefaultAnimation = "idle",
         });
+
+        // è™šæ‹Ÿæ‘‡æ†
         var joystick_ola1xd6b = LayoutEditorSpark2Runtime.Register(nodes, "joystick_ola1xd6b", new Panel());
         joystick_ola1xd6b.Parent = gamescene2d_ztj183re;
         joystick_ola1xd6b.HorizontalAlignment = HorizontalAlignment.Left;
@@ -453,7 +469,7 @@ public static class JungleAdventure2DScreen
         joystick_ola1xd6b.Margin = new Thickness(20f, 420f, 0f, 0f); // joystick: left=20, top=420
         joystick_ola1xd6b.Width = 100f;
         joystick_ola1xd6b.Height = 100f;
-        // ĞéÄâÒ¡¸Ë: Canvas »æÖÆ + CapturePointer ÍÏ×§ÊäÈë
+        // è™šæ‹Ÿæ‘‡æ†: Canvas ç»˜åˆ¶ + CapturePointer æ‹–æ‹½è¾“å…¥
         LayoutEditorSpark2Runtime.ConfigureJoystick(joystick_ola1xd6b, new JoystickConfig
         {
             Size = 100f,
@@ -461,6 +477,8 @@ public static class JungleAdventure2DScreen
             Fixed = true,
             TargetCharacterId = "player",
         });
+
+        // HUD - è¡€é‡æ˜¾ç¤º
         var text_rmoicp1q = LayoutEditorSpark2Runtime.Register(nodes, "text_rmoicp1q", new Label());
         text_rmoicp1q.Parent = gamescene2d_ztj183re;
         text_rmoicp1q.HorizontalAlignment = HorizontalAlignment.Left;
@@ -471,6 +489,8 @@ public static class JungleAdventure2DScreen
         text_rmoicp1q.TextColor = Color.FromArgb(255, 239, 68, 68);
         text_rmoicp1q.Bold = true;
         text_rmoicp1q.TextWrap = true;
+
+        // HUD - åˆ†æ•°æ˜¾ç¤º
         var text_78rdu92p = LayoutEditorSpark2Runtime.Register(nodes, "text_78rdu92p", new Label());
         text_78rdu92p.Parent = gamescene2d_ztj183re;
         text_78rdu92p.HorizontalAlignment = HorizontalAlignment.Right;
@@ -481,6 +501,8 @@ public static class JungleAdventure2DScreen
         text_78rdu92p.TextColor = Color.FromArgb(255, 251, 191, 36);
         text_78rdu92p.Bold = true;
         text_78rdu92p.TextWrap = true;
+
+        // HUD - å…³å¡æ˜¾ç¤º
         var text_8ngu0ok6 = LayoutEditorSpark2Runtime.Register(nodes, "text_8ngu0ok6", new Label());
         text_8ngu0ok6.Parent = gamescene2d_ztj183re;
         text_8ngu0ok6.HorizontalAlignment = HorizontalAlignment.Center;
@@ -490,6 +512,7 @@ public static class JungleAdventure2DScreen
         text_8ngu0ok6.FontSize = 11f;
         text_8ngu0ok6.TextColor = Color.FromArgb(255, 100, 116, 139);
         text_8ngu0ok6.TextWrap = true;
+
         return new LayoutScreenResult((Panel)gamescene2d_ztj183re, nodes);
     }
 
@@ -508,50 +531,6 @@ public static class JungleAdventure2DScreen
         var root = BuildRoot(onAction);
         root.Parent = parent;
         return root;
-    }
-
-    public static IReadOnlyList<string> ExportNotes()
-    {
-        return new string[]
-        {
-            "GameScene2D gamescene2d_ztj183re: ĞÇ»ğ2.0 2D³¡¾°¼Ü¹¹ = CanvasAnimated(äÖÈ¾) + PhysicsWorld2D(ÎïÀí)¡£Éè¼Æ·Ö±æÂÊ 960x540£¬ÖØÁ¦=900¡£×ø±ê×ª»»: PhysToScreenX = px * PixelsPerMeter - cameraX, PhysToScreenY = viewportHeight - py * PixelsPerMeter¡£",
-            "GradientBlock gradientblock_mwjzd5fu is exported as Canvas shell. Rebuild draw logic with GameUI.Canvas APIs.",
-            "Node image_i0rdvtg5 binds image resource ./assets/game2d/sheets/mossy_hills.png; Spark2 export now writes it to the control Image property.",
-            "SpriteAnimation spriteanimation_ys7k64aa: ĞÇ»ğ2.0Ê¹ÓÃ AnimatedImageSource + CanvasAnimated »æÖÆÖ¡¶¯»­¡£ĞèÔÚÊı¾İ±à¼­Æ÷ÖĞ´´½¨ GameDataAnimatedImage ×ÊÔ´£¨Image=./assets/game2d/sheets/plant1.png, FramesPerRow=10, Ö¡Êı=90£©¡£Canvas.DrawAnimatedImage(anim, x, y) ½øĞĞäÖÈ¾¡£",
-            "Node spriteanimation_ys7k64aa binds image resource ./assets/game2d/sheets/plant1.png; Spark2 export now writes it to the control Image property.",
-            "SpriteAnimation spriteanimation_5lcymdot: ĞÇ»ğ2.0Ê¹ÓÃ AnimatedImageSource + CanvasAnimated »æÖÆÖ¡¶¯»­¡£ĞèÔÚÊı¾İ±à¼­Æ÷ÖĞ´´½¨ GameDataAnimatedImage ×ÊÔ´£¨Image=./assets/game2d/sheets/plant1.png, FramesPerRow=10, Ö¡Êı=90£©¡£Canvas.DrawAnimatedImage(anim, x, y) ½øĞĞäÖÈ¾¡£",
-            "Node spriteanimation_5lcymdot binds image resource ./assets/game2d/sheets/plant1.png; Spark2 export now writes it to the control Image property.",
-            "SpriteAnimation spriteanimation_5llm3r4r: ĞÇ»ğ2.0Ê¹ÓÃ AnimatedImageSource + CanvasAnimated »æÖÆÖ¡¶¯»­¡£ĞèÔÚÊı¾İ±à¼­Æ÷ÖĞ´´½¨ GameDataAnimatedImage ×ÊÔ´£¨Image=./assets/game2d/sheets/plant_poison.png, FramesPerRow=10, Ö¡Êı=30£©¡£Canvas.DrawAnimatedImage(anim, x, y) ½øĞĞäÖÈ¾¡£",
-            "Node spriteanimation_5llm3r4r binds image resource ./assets/game2d/sheets/plant_poison.png; Spark2 export now writes it to the control Image property.",
-            "SpriteAnimation spriteanimation_y2x5fomx: ĞÇ»ğ2.0Ê¹ÓÃ AnimatedImageSource + CanvasAnimated »æÖÆÖ¡¶¯»­¡£ĞèÔÚÊı¾İ±à¼­Æ÷ÖĞ´´½¨ GameDataAnimatedImage ×ÊÔ´£¨Image=./assets/game2d/sheets/plant1.png, FramesPerRow=10, Ö¡Êı=90£©¡£Canvas.DrawAnimatedImage(anim, x, y) ½øĞĞäÖÈ¾¡£",
-            "Node spriteanimation_y2x5fomx binds image resource ./assets/game2d/sheets/plant1.png; Spark2 export now writes it to the control Image property.",
-            "SpriteAnimation spriteanimation_m6mj18dd: ĞÇ»ğ2.0Ê¹ÓÃ AnimatedImageSource + CanvasAnimated »æÖÆÖ¡¶¯»­¡£ĞèÔÚÊı¾İ±à¼­Æ÷ÖĞ´´½¨ GameDataAnimatedImage ×ÊÔ´£¨Image=./assets/game2d/sheets/plant_poison.png, FramesPerRow=10, Ö¡Êı=30£©¡£Canvas.DrawAnimatedImage(anim, x, y) ½øĞĞäÖÈ¾¡£",
-            "Node spriteanimation_m6mj18dd binds image resource ./assets/game2d/sheets/plant_poison.png; Spark2 export now writes it to the control Image property.",
-            "Collider2D collider2d_zypn0bay: ĞÇ»ğ2.0Ê¹ÓÃ RigidBody2D(Static) + CollisionBox2D¡£IsTrigger=false(´¥·¢Æ÷²»×èµ²ÎïÀí)¡£tag=ground¡£",
-            "ShapeRect shaperect_9bvxln2x is exported as Canvas shell. Rebuild draw logic with GameUI.Canvas APIs.",
-            "ShapeLine shapeline_g7jeu764 is exported as Canvas shell. Rebuild draw logic with GameUI.Canvas APIs.",
-            "Collider2D collider2d_m1a21kdw: ĞÇ»ğ2.0Ê¹ÓÃ RigidBody2D(Static) + CollisionBox2D¡£IsTrigger=false(´¥·¢Æ÷²»×èµ²ÎïÀí)¡£tag=platform¡£",
-            "ShapeRect shaperect_ei19bp0i is exported as Canvas shell. Rebuild draw logic with GameUI.Canvas APIs.",
-            "Collider2D collider2d_48uj6zky: ĞÇ»ğ2.0Ê¹ÓÃ RigidBody2D(Static) + CollisionBox2D¡£IsTrigger=false(´¥·¢Æ÷²»×èµ²ÎïÀí)¡£tag=platform¡£",
-            "ShapeRect shaperect_k0cgbwn3 is exported as Canvas shell. Rebuild draw logic with GameUI.Canvas APIs.",
-            "Collider2D collider2d_3w390iej: ĞÇ»ğ2.0Ê¹ÓÃ RigidBody2D(Static) + CollisionBox2D¡£IsTrigger=false(´¥·¢Æ÷²»×èµ²ÎïÀí)¡£tag=platform¡£",
-            "ShapeRect shaperect_nuf5zzj0 is exported as Canvas shell. Rebuild draw logic with GameUI.Canvas APIs.",
-            "Collider2D collider2d_9m8ogd4r: ĞÇ»ğ2.0Ê¹ÓÃ RigidBody2D(Static) + CollisionBox2D¡£IsTrigger=false(´¥·¢Æ÷²»×èµ²ÎïÀí)¡£tag=platform¡£",
-            "ShapeRect shaperect_9kb47ul0 is exported as Canvas shell. Rebuild draw logic with GameUI.Canvas APIs.",
-            "SpriteAnimation spriteanimation_6g23g0o8: ĞÇ»ğ2.0Ê¹ÓÃ AnimatedImageSource + CanvasAnimated »æÖÆÖ¡¶¯»­¡£ĞèÔÚÊı¾İ±à¼­Æ÷ÖĞ´´½¨ GameDataAnimatedImage ×ÊÔ´£¨Image=./assets/game2d/sheets/slime_orange.png, FramesPerRow=10, Ö¡Êı=30£©¡£Canvas.DrawAnimatedImage(anim, x, y) ½øĞĞäÖÈ¾¡£",
-            "Node spriteanimation_6g23g0o8 binds image resource ./assets/game2d/sheets/slime_orange.png; Spark2 export now writes it to the control Image property.",
-            "Collider2D collider2d_ex6ai4yz: ĞÇ»ğ2.0Ê¹ÓÃ RigidBody2D(Static) + CollisionBox2D¡£IsTrigger=true(´¥·¢Æ÷²»×èµ²ÎïÀí)¡£tag=enemy¡£",
-            "SpriteAnimation spriteanimation_9m1aubjh: ĞÇ»ğ2.0Ê¹ÓÃ AnimatedImageSource + CanvasAnimated »æÖÆÖ¡¶¯»­¡£ĞèÔÚÊı¾İ±à¼­Æ÷ÖĞ´´½¨ GameDataAnimatedImage ×ÊÔ´£¨Image=./assets/game2d/sheets/slime_green.png, FramesPerRow=10, Ö¡Êı=30£©¡£Canvas.DrawAnimatedImage(anim, x, y) ½øĞĞäÖÈ¾¡£",
-            "Node spriteanimation_9m1aubjh binds image resource ./assets/game2d/sheets/slime_green.png; Spark2 export now writes it to the control Image property.",
-            "Collider2D collider2d_sqwpkl9x: ĞÇ»ğ2.0Ê¹ÓÃ RigidBody2D(Static) + CollisionBox2D¡£IsTrigger=true(´¥·¢Æ÷²»×èµ²ÎïÀí)¡£tag=enemy¡£",
-            "SpriteAnimation spriteanimation_ehzwzr2b: ĞÇ»ğ2.0Ê¹ÓÃ AnimatedImageSource + CanvasAnimated »æÖÆÖ¡¶¯»­¡£ĞèÔÚÊı¾İ±à¼­Æ÷ÖĞ´´½¨ GameDataAnimatedImage ×ÊÔ´£¨Image=./assets/game2d/sheets/slime_orange.png, FramesPerRow=10, Ö¡Êı=30£©¡£Canvas.DrawAnimatedImage(anim, x, y) ½øĞĞäÖÈ¾¡£",
-            "Node spriteanimation_ehzwzr2b binds image resource ./assets/game2d/sheets/slime_orange.png; Spark2 export now writes it to the control Image property.",
-            "Collider2D collider2d_ehc99f42: ĞÇ»ğ2.0Ê¹ÓÃ RigidBody2D(Static) + CollisionBox2D¡£IsTrigger=true(´¥·¢Æ÷²»×èµ²ÎïÀí)¡£tag=enemy¡£",
-            "CharacterController2D charactercontroller2d_pgrzbdex: ĞÇ»ğ2.0Ê¹ÓÃ RigidBody2D(Dynamic) + CollisionBox2D ÊµÏÖ½ÇÉ«ÎïÀí¡£¶¯»­Í¨¹ı AnimatedImageSource.PlayAnimation(\"idle\") ÇĞ»»¡£ËÙ¶È=200, ÌøÔ¾Á¦=380, ¶¯»­¼¯=[idle,walk,jump]¡£",
-            "SpriteAnimation spriteanimation_wuq4e93w: ĞÇ»ğ2.0Ê¹ÓÃ AnimatedImageSource + CanvasAnimated »æÖÆÖ¡¶¯»­¡£ĞèÔÚÊı¾İ±à¼­Æ÷ÖĞ´´½¨ GameDataAnimatedImage ×ÊÔ´£¨Image=./assets/game2d/sheets/wizard_dash_fx.png, FramesPerRow=8, Ö¡Êı=16£©¡£Canvas.DrawAnimatedImage(anim, x, y) ½øĞĞäÖÈ¾¡£",
-            "Node spriteanimation_wuq4e93w binds image resource ./assets/game2d/sheets/wizard_dash_fx.png; Spark2 export now writes it to the control Image property.",
-            "Joystick joystick_ola1xd6b: ĞÇ»ğ2.0Ê¹ÓÃ Canvas.OnPointerPressed + CapturePointer + OnPointerCapturedMove ÊµÏÖĞéÄâÒ¡¸Ë¡£size=100, deadZone=0.15¡£",
-        };
     }
 }
 #endif
