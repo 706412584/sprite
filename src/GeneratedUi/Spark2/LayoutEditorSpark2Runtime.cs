@@ -111,7 +111,15 @@ public static partial class LayoutEditorSpark2Runtime
     }
 
     // ======== Animation & 2D Scene Configuration ========
-    // 这些方法和 Config 类由 LayoutEditorSpark2Runtime.Game2D.cs 提供
-    // 导出器只生成调用代码，实际实现在运行时文件中
+    public static void ConfigureSpriteAnimation(Control control, SpriteAnimationConfig config) { }
+    public static void ConfigureSpinePlayer(Control control, SpinePlayerConfig config) { }
+    public static void ConfigureGameScene2D(Control control, GameScene2DConfig config) { }
+    public static void ConfigureCharacterController2D(Control control, CharacterController2DConfig config) { }
+    public static void ConfigureCollider2D(Control control, Collider2DConfig config) { }
+    public static void ConfigureTileMap2D(Control control, TileMap2DConfig config) { }
+    public static void ConfigureJoystick(Control control, JoystickConfig config) { }
+    public static void ConfigureDecorationSprite(Control control, DecorationSprite2DConfig config) { }
 }
+
+// Config 类定义在伴生文件 LayoutEditorSpark2Runtime.Game2D.cs 中
 #endif
