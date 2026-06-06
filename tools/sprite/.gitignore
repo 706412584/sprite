@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.pyo
+
+.venv/
+venv/
+env/
+
+node_modules/
+dist/
+release/
+work/
+*.tsbuildinfo
+
+.DS_Store
+Thumbs.db
+*.lnk

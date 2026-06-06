@@ -1,0 +1,5 @@
+Sprite Video Lab
+
+Copyright (c) 2026
+
+本软件基于 MIT License 发布。第三方运行时、模型和工具（例如 ffmpeg、BiRefNet、CorridorKey、PyTorch、Hugging Face 模型权重）可能具有各自的许可证和使用限制。重新分发或商用前请确认对应许可证。

@@ -1,0 +1,500 @@
+/* 骨骼动画制作面板基础样式 */
+
+.bone-anim-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.bone-anim-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.bone-anim-header h3 {
+  margin: 0 0 4px 0;
+}
+
+.bone-anim-stepper {
+  margin: 0;
+}
+
+.bone-anim-stage-host {
+  display: grid;
+  gap: 16px;
+}
+
+.bone-stage {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 14px;
+  background-color: rgba(2, 6, 23, 0.42);
+  border: 1px solid rgba(139, 166, 217, 0.16);
+  min-height: 260px;
+}
+
+.bone-source-banner {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.58);
+  border: 1px solid rgba(139, 166, 217, 0.2);
+}
+
+.bone-source-banner strong {
+  color: #f8fafc;
+}
+
+.bone-source-banner span {
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.bone-source-banner.processed {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: rgba(22, 101, 52, 0.12);
+}
+
+.bone-source-banner.raw {
+  border-color: rgba(250, 204, 21, 0.5);
+  background: rgba(113, 63, 18, 0.16);
+}
+
+.bone-quality-box {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.58);
+  border: 1px solid rgba(139, 166, 217, 0.2);
+}
+
+.bone-quality-box.ok {
+  border-color: rgba(34, 197, 94, 0.55);
+  background: rgba(22, 101, 52, 0.12);
+}
+
+.bone-quality-box.warning {
+  border-color: rgba(250, 204, 21, 0.55);
+  background: rgba(113, 63, 18, 0.18);
+}
+
+.bone-quality-box.blocking {
+  border-color: rgba(248, 113, 113, 0.62);
+  background: rgba(127, 29, 29, 0.18);
+}
+
+.bone-quality-box strong {
+  color: #f8fafc;
+}
+
+.bone-quality-box ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #cbd5e1;
+}
+
+.bone-quality-actions {
+  display: grid;
+  gap: 4px;
+  color: #fef3c7;
+  font-size: 12px;
+}
+
+.bone-slice-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(320px, 480px);
+  gap: 16px;
+}
+
+.bone-slice-source {
+  border: 1px dashed rgba(148, 163, 184, 0.34);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  place-items: center;
+  min-height: 320px;
+  background-color: rgba(2, 6, 23, 0.38);
+}
+
+.bone-slice-source img {
+  max-width: 100%;
+  max-height: 480px;
+  object-fit: contain;
+}
+
+.bone-slice-thumbs h4 {
+  margin: 8px 0 6px 0;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.bone-thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.bone-thumb {
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 8px;
+  background-color: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(139, 166, 217, 0.16);
+  text-align: center;
+}
+
+.bone-thumb img {
+  max-width: 100%;
+  max-height: 80px;
+  object-fit: contain;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%) 0 0/12px 12px,
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%) 0 0/12px 12px;
+}
+
+.bone-thumb span {
+  font-size: 12px;
+  color: #e2e8f0;
+  word-break: break-all;
+}
+
+.bone-thumb small {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.bone-rig-grid {
+  display: grid;
+  grid-template-columns: 200px minmax(420px, 1fr) minmax(280px, 360px);
+  gap: 16px;
+}
+
+.bone-rig-templates {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.bone-rig-templates h4 {
+  margin: 0;
+}
+
+.bone-template-list {
+  display: grid;
+  gap: 6px;
+}
+
+.bone-template-item {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(139, 166, 217, 0.2);
+  background: rgba(15, 23, 42, 0.55);
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.bone-template-item.selected {
+  border-color: #facc15;
+  background: rgba(250, 204, 21, 0.08);
+}
+
+.bone-template-item small {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.bone-rig-canvas {
+  border: 1px dashed rgba(148, 163, 184, 0.34);
+  border-radius: 12px;
+  padding: 8px;
+  background-color: rgba(2, 6, 23, 0.45);
+  min-height: 480px;
+}
+
+.bone-canvas {
+  display: block;
+  width: 100%;
+  height: 480px;
+}
+
+.bone-rig-inspector {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.bone-rig-inspector h4 {
+  margin: 0;
+}
+
+.bone-slot-list {
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.bone-slot-row {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(139, 166, 217, 0.16);
+  cursor: pointer;
+}
+
+.bone-slot-row.selected {
+  border-color: #facc15;
+}
+
+.bone-slot-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.bone-slot-row-head small {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.bone-slot-row select {
+  width: 100%;
+}
+
+.bone-slot-detail {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid rgba(139, 166, 217, 0.18);
+}
+
+.bone-attachment-form {
+  display: grid;
+  gap: 8px;
+}
+
+.bone-pivot-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.bone-attachment-preview {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.55);
+}
+
+.bone-attachment-preview img {
+  max-width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+}
+
+.bone-pivot-marker {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  margin-top: -5px;
+  border: 2px solid #facc15;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.bone-action-grid {
+  display: grid;
+  grid-template-columns: 240px minmax(360px, 1fr);
+  gap: 16px;
+}
+
+.bone-action-list {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.bone-action-list h4 {
+  margin: 0 0 4px 0;
+}
+
+.bone-action-form {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.45);
+  border: 1px solid rgba(139, 166, 217, 0.18);
+}
+
+.bone-action-params {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.bone-action-params label {
+  display: grid;
+  gap: 4px;
+}
+
+.bone-anim-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.bone-anim-list li {
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(139, 166, 217, 0.16);
+}
+
+.bone-anim-list small {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.bone-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(240px, 320px);
+  gap: 16px;
+}
+
+.bone-preview-host {
+  border: 1px dashed rgba(148, 163, 184, 0.34);
+  border-radius: 12px;
+  padding: 8px;
+  background-color: rgba(2, 6, 23, 0.45);
+  display: grid;
+  place-items: center;
+  min-height: 480px;
+}
+
+.bone-preview-canvas {
+  display: block;
+  border-radius: 8px;
+}
+
+.bone-preview-controls {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.bone-preview-controls h4 {
+  margin: 0;
+}
+
+.bone-anim-pick {
+  display: grid;
+  gap: 6px;
+}
+
+.bone-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bone-export-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.bone-export-row {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(139, 166, 217, 0.2);
+}
+
+.bone-export-row strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.bone-export-row small {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+/* 姿态识别结果提示条 */
+.bone-pose-banner {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.58);
+  border: 1px solid rgba(139, 166, 217, 0.2);
+}
+
+.bone-pose-banner strong {
+  color: #f8fafc;
+}
+
+.bone-pose-banner span {
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.bone-pose-banner.info {
+  border-color: rgba(96, 165, 250, 0.5);
+  background: rgba(30, 58, 138, 0.16);
+}
+
+.bone-pose-banner.warning {
+  border-color: rgba(250, 204, 21, 0.5);
+  background: rgba(113, 63, 18, 0.16);
+}
+
+/* 姿态语义部件缩略图：用蓝色描边和角标区分几何切片 */
+.bone-thumb.pose {
+  border-color: rgba(96, 165, 250, 0.5);
+  background-color: rgba(30, 58, 138, 0.18);
+}
+
+.bone-thumb.pose span {
+  color: #bfdbfe;
+}
+
+/* 按名称自动绑定区 */
+.bone-autorig {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.bone-autorig button {
+  justify-self: start;
+}
+
+.bone-autorig p {
+  margin: 0;
+  font-size: 12px;
+}

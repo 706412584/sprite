@@ -1,0 +1,17 @@
+# CLAUDE.md
+
+Behavioral guidelines for this subproject. Merge with parent project instructions as needed.
+
+## CodeGraph First
+
+Before code exploration, implementation, refactoring, or debugging in this project, read from CodeGraph MCP first to understand relevant files, symbols, callers/callees, and impact. Prefer CodeGraph for project-wide structure and dependency questions before falling back to Glob/Grep/Read.
+
+When using CodeGraph MCP for this subproject, pass:
+
+`projectPath: "D:/User/70641/Documents/SCE Projects/game_entry_0/tools/sprite"`
+
+Do not rely on the MCP server default path, because it may point to another project or subproject.
+
+If CodeGraph is unavailable, note that explicitly and then use Glob/Grep/Read as the fallback path.
+
+CodeGraph index normally updates automatically via file watcher after file writes, with a short delay. After branch switches, pulls, merges, rebases, large generated-code changes, or when results look stale, verify with `codegraph_status` before relying on it.

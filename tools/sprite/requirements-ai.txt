@@ -1,0 +1,14 @@
+torch>=2.5.0
+torchvision
+transformers>=4.45.0
+huggingface-hub>=0.25
+accelerate
+timm
+safetensors
+kornia
+einops
+opencv-python
+mediapipe>=0.10
+numpy<2
+scipy
+scikit-image

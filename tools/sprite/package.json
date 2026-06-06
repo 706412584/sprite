@@ -1,0 +1,91 @@
+{
+  "name": "sprite-video-lab-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI sprite and VFX processing lab with React UI and local Python runtime.",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "python server.py --host 127.0.0.1 --port 8895",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "desktop:dev": "npm run build && node ./scripts/run-electron-desktop.mjs",
+    "package:desktop:win": "node ./scripts/package-desktop-win.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "electron": "^41.5.0",
+    "electron-builder": "^26.8.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  },
+  "build": {
+    "appId": "com.sce.spritevideolab",
+    "productName": "精灵动画工坊",
+    "directories": {
+      "buildResources": "build",
+      "output": "release/desktop"
+    },
+    "files": [
+      "dist",
+      "electron",
+      "build/icon.png",
+      "build/icon.ico",
+      "server.py",
+      "requirements.txt",
+      "requirements-ai.txt",
+      "setup_ai_runtime.bat",
+      "start_sprite_video_lab.bat",
+      "start_sprite_video_lab_portable.bat",
+      "AI_MATTING.md",
+      "USAGE.md",
+      "USAGE.zh-CN.md",
+      "README.md",
+      "LICENSE",
+      "VERSION",
+      "scripts",
+      "package.json",
+      "!work/**/*",
+      "!node_modules/**/*",
+      "!**/{test,__tests__,tests,example,examples}",
+      "!**/*.{map}"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "server.py",
+      "requirements*.txt",
+      "setup_ai_runtime.bat",
+      "runtime/**/*"
+    ],
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
+    "win": {
+      "signAndEditExecutable": true,
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "license": "EULA.txt",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    }
+  }
+}
