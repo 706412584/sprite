@@ -2,12 +2,16 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import JSZip from "jszip";
 import {
   quantizeImageData,
+  quantizeImageDataWithPalette,
+  replacePaletteColor,
+  hexToRgba,
   loadImageToCanvas,
   defaultQuantizeOptions,
   type QuantizeOptions,
   type QuantizeResult,
   type DitheringMethod,
   type QuantizeMethod,
+  type PaletteColor,
 } from "./quantizeEngine";
 
 const ditheringOptions: Array<{ value: DitheringMethod; label: string }> = [
@@ -46,6 +50,8 @@ export function QuantizePanel() {
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [editingColor, setEditingColor] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
+  // 调色板锁定：以哪张图的调色板为准（null = 不锁定，每张独立量化）
+  const [lockSourceId, setLockSourceId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -121,6 +127,22 @@ export function QuantizePanel() {
     setProcessing(true);
     setProgress({ done: 0, total: list.length });
 
+    // 锁定调色板：先确保 lock 源已量化，得到其 palette；其他图用该 palette 量化
+    let lockedPalette: PaletteColor[] | null = null;
+    let lockSrc: QuantizeItem | null = null;
+    if (lockSourceId) {
+      lockSrc = list.find((it) => it.id === lockSourceId) || null;
+      if (lockSrc) {
+        try {
+          const seed = quantizeImageData(lockSrc.imageData, opts);
+          lockedPalette = seed.palette;
+          setItems((prev) => prev.map((it) => (it.id === lockSrc!.id ? { ...it, result: seed } : it)));
+        } catch (err) {
+          console.error("锁定源量化失败", err);
+        }
+      }
+    }
+
     let i = 0;
     const step = () => {
       if (i >= list.length) {
@@ -132,8 +154,17 @@ export function QuantizePanel() {
         return;
       }
       const cur = list[i]!;
+      // 锁定源已经在前面跑过了，跳过
+      if (lockSrc && cur.id === lockSrc.id) {
+        i++;
+        setProgress({ done: i, total: list.length });
+        requestAnimationFrame(() => setTimeout(step, 0));
+        return;
+      }
       try {
-        const res = quantizeImageData(cur.imageData, opts);
+        const res = lockedPalette
+          ? quantizeImageDataWithPalette(cur.imageData, opts, lockedPalette)
+          : quantizeImageData(cur.imageData, opts);
         setItems((prev) => prev.map((it) => (it.id === cur.id ? { ...it, result: res } : it)));
       } catch (err) {
         console.error("量化失败", cur.name, err);
@@ -144,7 +175,7 @@ export function QuantizePanel() {
       requestAnimationFrame(() => setTimeout(step, 0));
     };
     requestAnimationFrame(() => setTimeout(step, 0));
-  }, [processing]);
+  }, [processing, lockSourceId]);
 
   // 参数 / 列表变化 -> debounced 批量
   useEffect(() => {
@@ -157,7 +188,7 @@ export function QuantizePanel() {
       if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length, options.colors, options.method, options.dithering, options.pixelSize]);
+  }, [items.length, options.colors, options.method, options.dithering, options.pixelSize, lockSourceId]);
 
   // 当前预览 canvas 渲染
   useEffect(() => {
@@ -175,6 +206,25 @@ export function QuantizePanel() {
     const ctx = resultCanvasRef.current.getContext("2d")!;
     ctx.putImageData(activeItem.result.imageData, 0, 0);
   }, [activeItem?.result]);
+
+  // 调色板手动改色：把当前活动图的第 idx 个调色板色全部替换为 hexNew
+  function recolorActive(idx: number, hexNew: string) {
+    if (!activeItem?.result) return;
+    const old = activeItem.result.palette[idx];
+    if (!old) return;
+    const rgba = hexToRgba(hexNew.length === 7 ? hexNew + "ff" : hexNew);
+    const newColor: PaletteColor = {
+      r: rgba.r, g: rgba.g, b: rgba.b, a: rgba.a,
+      hex: hexNew.length === 7 ? hexNew : hexNew,
+    };
+    const newImageData = replacePaletteColor(activeItem.result.imageData, old, newColor);
+    const newPalette = [...activeItem.result.palette];
+    newPalette[idx] = newColor;
+    setItems((prev) => prev.map((it) => it.id === activeItem.id ? {
+      ...it,
+      result: { ...it.result!, imageData: newImageData, palette: newPalette },
+    } : it));
+  }
 
   // 单张导出
   function exportCurrent() {
@@ -318,18 +368,28 @@ export function QuantizePanel() {
           {items.map((it) => (
             <div
               key={it.id}
-              className={`q-thumb ${activeId === it.id ? "active" : ""} ${it.result ? "ready" : "pending"}`}
+              className={`q-thumb ${activeId === it.id ? "active" : ""} ${it.result ? "ready" : "pending"} ${lockSourceId === it.id ? "locked" : ""}`}
               onClick={() => setActiveId(it.id)}
               title={it.name}
             >
               <img src={it.url} alt={it.name} />
               <span className="q-thumb-name">{it.name}</span>
               <button
+                className="q-thumb-lock"
+                title={lockSourceId === it.id ? "取消调色板锁定" : "以此图调色板为基准锁定全部"}
+                onClick={(e) => { e.stopPropagation(); setLockSourceId(lockSourceId === it.id ? null : it.id); }}
+              >{lockSourceId === it.id ? "🔒" : "🔓"}</button>
+              <button
                 className="q-thumb-remove"
                 onClick={(e) => { e.stopPropagation(); removeItem(it.id); }}
               >×</button>
             </div>
           ))}
+          {lockSourceId && (
+            <div className="q-lock-note">
+              已锁定调色板：以「{items.find((it) => it.id === lockSourceId)?.name || "?"}」为基准
+            </div>
+          )}
         </div>
       )}
 
@@ -346,18 +406,26 @@ export function QuantizePanel() {
 
       {activeItem?.result && (
         <div className="quantize-palette">
-          <h4>调色板 ({activeItem.result.palette.length} 色)</h4>
+          <h4>调色板 ({activeItem.result.palette.length} 色) <small>{lockSourceId ? "锁定模式下不可改色" : "点击色块改色"}</small></h4>
           <div className="palette-grid">
             {activeItem.result.palette.map((color, i) => (
-              <div
+              <label
                 key={i}
                 className={`palette-swatch ${editingColor === i ? "editing" : ""}`}
                 style={{ backgroundColor: color.hex }}
-                title={color.hex}
+                title={lockSourceId ? "锁定模式下禁用改色" : `${color.hex} - 点击改色`}
                 onClick={() => setEditingColor(editingColor === i ? null : i)}
               >
+                {!lockSourceId && (
+                  <input
+                    type="color"
+                    value={color.hex.length === 7 ? color.hex : color.hex.slice(0, 7)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => recolorActive(i, e.target.value)}
+                  />
+                )}
                 {editingColor === i && <span className="swatch-hex">{color.hex}</span>}
-              </div>
+              </label>
             ))}
           </div>
         </div>

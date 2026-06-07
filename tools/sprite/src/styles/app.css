@@ -1756,3 +1756,76 @@ button.env-dl-link {
   background: #f87171;
   color: #0f172a;
 }
+
+.q-thumb-lock {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: none;
+  background: rgba(15, 23, 42, 0.85);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.q-thumb-lock:hover {
+  background: #818cf8;
+}
+
+.q-thumb.locked {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.5);
+}
+
+.q-lock-note {
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  color: #fbbf24;
+  padding: 4px 8px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 4px;
+}
+
+.palette-swatch input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.quantize-palette h4 small {
+  margin-left: 8px;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: normal;
+}
+
+.frame-diff-chart {
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid #334155;
+  border-radius: 8px;
+}
+
+.frame-diff-thumbs {
+  max-height: 240px;
+}
+
+.q-thumb.jumpy {
+  border-color: #f87171;
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.5);
+}
+
+.frame-diff-mad {
+  font-size: 0.7rem;
+  font-family: monospace;
+}

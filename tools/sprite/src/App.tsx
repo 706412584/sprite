@@ -6,8 +6,12 @@ import { WorkflowPanel } from "@/features/workflow/WorkflowPanel";
 import { UiSmartSlicePanel } from "@/features/smart-slice/UiSmartSlicePanel";
 import { BoneAnimPanel } from "@/features/bone-anim/BoneAnimPanel";
 import { QuantizePanel } from "@/features/quantize/QuantizePanel";
+import { NineSlicePanel } from "@/features/nine-slice/NineSlicePanel";
+import { PixelFontPanel } from "@/features/pixel-font/PixelFontPanel";
+import { NormalMapPanel } from "@/features/normal-map/NormalMapPanel";
+import { FrameDiffPanel } from "@/features/frame-diff/FrameDiffPanel";
 
-type WorkspaceTab = "workflow" | "smart-slice" | "bone-anim" | "spriteflow" | "quantize" | "runtime";
+type WorkspaceTab = "workflow" | "smart-slice" | "bone-anim" | "spriteflow" | "quantize" | "nine-slice" | "pixel-font" | "normal-map" | "frame-diff" | "runtime";
 
 const tabs: Array<{ key: WorkspaceTab; label: string }> = [
   { key: "workflow", label: "制作流水线" },
@@ -15,6 +19,10 @@ const tabs: Array<{ key: WorkspaceTab; label: string }> = [
   { key: "bone-anim", label: "骨骼动画制作" },
   { key: "spriteflow", label: "SpriteFlow" },
   { key: "quantize", label: "像素量化" },
+  { key: "nine-slice", label: "9-slice 编辑器" },
+  { key: "pixel-font", label: "像素字体" },
+  { key: "normal-map", label: "法线贴图" },
+  { key: "frame-diff", label: "帧质量检查" },
   { key: "runtime", label: "运行时" },
 ];
 
@@ -74,6 +82,10 @@ function AppInner() {
             {activeTab === "bone-anim" && <BoneAnimPanel />}
             {activeTab === "spriteflow" && <SpriteFlowPanel />}
             {activeTab === "quantize" && <QuantizePanel />}
+            {activeTab === "nine-slice" && <NineSlicePanel />}
+            {activeTab === "pixel-font" && <PixelFontPanel />}
+            {activeTab === "normal-map" && <NormalMapPanel />}
+            {activeTab === "frame-diff" && <FrameDiffPanel />}
             {activeTab === "runtime" && <RuntimePanel />}
           </div>
         </div>
