@@ -16,7 +16,9 @@
     "desktop:dev": "npm run build && node ./scripts/run-electron-desktop.mjs",
     "package:desktop:win": "node ./scripts/package-desktop-win.mjs"
   },
-  "dependencies": {},
+  "dependencies": {
+    "image-q": "^4.0.0"
+  },
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

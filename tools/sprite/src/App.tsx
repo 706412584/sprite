@@ -5,14 +5,16 @@ import { SpriteFlowPanel } from "@/spriteflow/SpriteFlowPanel";
 import { WorkflowPanel } from "@/features/workflow/WorkflowPanel";
 import { UiSmartSlicePanel } from "@/features/smart-slice/UiSmartSlicePanel";
 import { BoneAnimPanel } from "@/features/bone-anim/BoneAnimPanel";
+import { QuantizePanel } from "@/features/quantize/QuantizePanel";
 
-type WorkspaceTab = "workflow" | "smart-slice" | "bone-anim" | "spriteflow" | "runtime";
+type WorkspaceTab = "workflow" | "smart-slice" | "bone-anim" | "spriteflow" | "quantize" | "runtime";
 
 const tabs: Array<{ key: WorkspaceTab; label: string }> = [
   { key: "workflow", label: "制作流水线" },
   { key: "smart-slice", label: "UI 智能切片" },
   { key: "bone-anim", label: "骨骼动画制作" },
   { key: "spriteflow", label: "SpriteFlow" },
+  { key: "quantize", label: "像素量化" },
   { key: "runtime", label: "运行时" },
 ];
 
@@ -71,6 +73,7 @@ function AppInner() {
             {activeTab === "smart-slice" && <UiSmartSlicePanel />}
             {activeTab === "bone-anim" && <BoneAnimPanel />}
             {activeTab === "spriteflow" && <SpriteFlowPanel />}
+            {activeTab === "quantize" && <QuantizePanel />}
             {activeTab === "runtime" && <RuntimePanel />}
           </div>
         </div>
