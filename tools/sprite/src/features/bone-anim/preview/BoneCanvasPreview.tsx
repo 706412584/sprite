@@ -3,7 +3,28 @@
 // 用 canvas2d 绘制贴图。先满足 v1 验证：translate / rotate / scale 通道，linear / stepped 缓动。
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Animation, BoneNode, Keyframe, KeyframeChannel, Skeleton, Slot } from "../model/skeletonModel";
+import { Animation, AttachmentImage, BoneNode, Keyframe, KeyframeChannel, Skeleton, Slot } from "../model/skeletonModel";
+import { LIMB_LENGTH_PAD } from "../model/poseToParts";
+
+const UPRIGHT_ATTACHMENT_NAMES = new Set(["head", "torso", "body"]);
+
+// 与 StageRig 对齐的"按骨骼长度缩放贴图"逻辑，避免预览里贴图按原始像素绘制把人画成一坨。
+// 注意：带 sourceRect 的 PSD 服饰图层不能按四肢长度压缩，需要按画布 letterbox 同比缩放（外部传入 psdScale）。
+function computeAttachmentDisplaySize(att: AttachmentImage, bone: BoneNode | undefined, psdScale: number): { w: number; h: number } {
+  if (att.sourceRect && psdScale > 0) {
+    return { w: att.width * psdScale, h: att.height * psdScale };
+  }
+  const isLimb = !UPRIGHT_ATTACHMENT_NAMES.has(bone?.name ?? att.name);
+  const refLen = bone?.length || 0;
+  if (refLen <= 0) {
+    const fallback = Math.min(att.width, 120) / Math.max(1, att.width);
+    return { w: att.width * fallback, h: att.height * fallback };
+  }
+  const targetAxis = isLimb ? refLen * LIMB_LENGTH_PAD : refLen;
+  const sourceAxis = isLimb ? att.width : att.height;
+  const scale = targetAxis / Math.max(1, sourceAxis);
+  return { w: att.width * scale, h: att.height * scale };
+}
 
 interface Props {
   skeleton: Skeleton;
@@ -162,7 +183,8 @@ export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, widt
 
     startRef.current = performance.now();
     const cx = width / 2;
-    const cy = height / 2 + 100;
+    // 同 StageRig：root 下移 55px 让头不出 viewBox 顶部
+    const cy = height / 2 + 55;
 
     const loopTick = (now: number) => {
       const elapsed = ((now - startRef.current) / 1000) * Math.max(0.05, timeScale);
@@ -208,8 +230,18 @@ export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, widt
       }
 
       // 绘制 slots，按 zOrder
+      // 完全骨骼驱动：所有 slot（含 PSD 带 sourceRect 的部件）一律按所绑骨骼的世界 transform 定位，
+      // 不再特殊处理 sourceRect 绝对坐标——这样部件能跟随骨骼动画移动/旋转，代价是静止摆位
+      // 由骨骼 setup pose + pivot 决定，会与 PS 原图相对位置有偏差（用户已确认接受 tradeoff）。
       const sortedSlots: Slot[] = skeleton.slots.slice().sort((a, b) => a.zOrder - b.zOrder);
       const imgById = new Map(images.map((i) => [i.id, i.img]));
+
+      // PSD 服饰图层按画布 letterbox 同比缩放，避免被 computeAttachmentDisplaySize 按四肢长度压扁。
+      const firstPsd = skeleton.attachments.find((a) => a.sourceRect);
+      const psdScale = firstPsd?.sourceRect
+        ? Math.min(width / firstPsd.sourceRect.canvasWidth, height / firstPsd.sourceRect.canvasHeight)
+        : 0;
+
       for (const slot of sortedSlots) {
         const att = skeleton.attachments.find((a) => a.id === slot.attachmentId);
         const bone = skeleton.bones.find((b) => b.id === slot.boneId);
@@ -221,11 +253,22 @@ export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, widt
 
         ctx.save();
         ctx.translate(cx + w.x, cy + w.y);
-        ctx.rotate((w.rotationDeg * Math.PI) / 180);
+        const { w: dispW, h: dispH } = computeAttachmentDisplaySize(att, bone, psdScale);
+        const px = att.pivot.x * dispW;
+        const py = att.pivot.y * dispH;
+        const offset = slot.setupOffset;
+        if (offset) {
+          const rad = (w.rotationDeg * Math.PI) / 180;
+          ctx.translate(offset.x * Math.cos(rad) - offset.y * Math.sin(rad), offset.x * Math.sin(rad) + offset.y * Math.cos(rad));
+        }
+        const upright = UPRIGHT_ATTACHMENT_NAMES.has(bone.name);
+        if (offset) {
+          ctx.rotate(((upright ? 0 : w.rotationDeg) + offset.rotation) * Math.PI / 180);
+        } else if (!upright) {
+          ctx.rotate((w.rotationDeg * Math.PI) / 180);
+        }
         ctx.scale(w.scaleX, w.scaleY);
-        const px = att.pivot.x * att.width;
-        const py = att.pivot.y * att.height;
-        ctx.drawImage(img, -px, -py, att.width, att.height);
+        ctx.drawImage(img, -px, -py, dispW, dispH);
         ctx.restore();
       }
 
