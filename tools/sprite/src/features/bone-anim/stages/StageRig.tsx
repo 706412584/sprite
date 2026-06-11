@@ -4,16 +4,54 @@
 // - 部件名称 / pivot 简单微调
 
 import { useCallback, useMemo, useState } from "react";
-import { useBoneAnim } from "../BoneAnimContext";
+import { useBoneAnim, CharacterPoseMode } from "../BoneAnimContext";
 import { applyTemplate, getTemplateById, skeletonTemplates } from "../model/skeletonTemplates";
-import { AttachmentImage, BoneNode, findAttachment, findBone, findBoneByName, getDisplayName, makeId, Slot } from "../model/skeletonModel";
+import { AttachmentImage, BoneNode, findAttachment, findBone, findBoneByName, getDisplayName, makeId, Skeleton, Slot } from "../model/skeletonModel";
 import { LIMB_LENGTH_PAD } from "../model/poseToParts";
 import { mapPsdLayerToBone } from "../model/psdBoneMapping";
 import { fitSkeletonToPsd } from "../model/fitSkeletonToPsd";
+import { detectPose } from "../model/poseDetector";
+
+interface PsdRigCheck {
+  total: number;
+  matched: number;
+  alreadyBound: number;
+  unmatched: string[];
+  missingBones: string[];
+  defaultSideWarnings: string[];
+  keyParts: Array<{ label: string; ok: boolean }>;
+  sidePendingWarning: boolean;
+}
+
+const sidedLayerPattern = /(^|[-_])(l|r)($|[-_0-9])|left|right/i;
+const HEAD_LAYER_Z: Array<{ pattern: RegExp; z: number }> = [
+  { pattern: /back[-_ ]?hair|hair[-_ ]?back|rear[-_ ]?hair/i, z: -40 },
+  { pattern: /front[-_ ]?hair|hair[-_ ]?front|bang|hair|headwear|hat|helmet|horn/i, z: 40 },
+  { pattern: /eye|brow|lash|iris|irid|pupil|mouth|lip|teeth|tongue/i, z: -10 },
+  { pattern: /(^|[-_ ])(head|face|ear|nose)($|[-_ ])/i, z: -20 },
+];
+
+function getPsdSlotZOrder(att: AttachmentImage, index: number): number {
+  const headLayer = HEAD_LAYER_Z.find((layer) => layer.pattern.test(att.name) || layer.pattern.test(att.displayName ?? ""));
+  return headLayer ? headLayer.z + index / 1000 : index;
+}
+
+function hasSidedIntent(name: string): boolean {
+  return /(arm|hand|leg|foot|sleeve|glove|boot|shoe|sock|thigh|shin|wrist|ankle)/i.test(name);
+}
+
+function buildKeyPartChecks(skeleton: Skeleton): Array<{ label: string; ok: boolean }> {
+  return [
+    { label: "head 头部", ok: Boolean(findBoneByName(skeleton, "head")) },
+    { label: "torso/chest 躯干", ok: Boolean(findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "chest") || findBoneByName(skeleton, "body")) },
+    { label: "arm 手臂", ok: Boolean(findBoneByName(skeleton, "upperArmL") || findBoneByName(skeleton, "forearmL") || findBoneByName(skeleton, "upperArmR") || findBoneByName(skeleton, "forearmR")) },
+    { label: "leg 腿部", ok: Boolean(findBoneByName(skeleton, "thighL") || findBoneByName(skeleton, "shinL") || findBoneByName(skeleton, "thighR") || findBoneByName(skeleton, "shinR")) },
+  ];
+}
 
 type DragMode = "joint" | "tip";
 
-const uprightAttachmentNames = new Set(["head", "torso", "body"]);
+const uprightAttachmentNames = new Set(["head", "torso", "body", "chest", "waist", "eyeL", "eyeR", "mouth"]);
 
 // 计算贴图在骨骼坐标系下的显示尺寸：
 // - PSD 服饰图层（带 sourceRect）：按画布 letterbox 同比缩放，避免被四肢长度压扁
@@ -24,7 +62,7 @@ function computeAttachmentDisplaySize(att: AttachmentImage, bone: BoneNode | und
   if (att.sourceRect && psdScale > 0) {
     return { w: att.width * psdScale, h: att.height * psdScale };
   }
-  const isLimb = !uprightAttachmentNames.has(att.name);
+  const isLimb = !uprightAttachmentNames.has(bone?.name ?? att.name);
   const refLen = bone?.length || 0;
   if (refLen <= 0) {
     const fallback = Math.min(att.width, 120) / Math.max(1, att.width);
@@ -48,7 +86,7 @@ interface Props {
 }
 
 export function StageRig({ onNext }: Props) {
-  const { skeleton, setSkeleton, selectedSlotId, setSelectedSlotId } = useBoneAnim();
+  const { skeleton, setSkeleton, selectedSlotId, setSelectedSlotId, poseMode, setPoseMode, setPoseDetection } = useBoneAnim();
   const [templateId, setTemplateId] = useState<string>("humanoid");
 
   const currentTemplate = useMemo(() => getTemplateById(templateId), [templateId]);
@@ -72,6 +110,7 @@ export function StageRig({ onNext }: Props) {
 
   const [autoRigHint, setAutoRigHint] = useState<string | null>(null);
   const [psdRigHint, setPsdRigHint] = useState<string | null>(null);
+  const [psdRigCheck, setPsdRigCheck] = useState<PsdRigCheck | null>(null);
 
   // PSD 一键绑骨：对带 sourceRect 的图层按"服饰名→骨骼"映射建 slot 绑到目标骨。
   // 绑骨建立"图层归属哪根骨"的数据关联（供导出与后续动画使用）；预览采用「完全骨骼驱动」，
@@ -82,10 +121,12 @@ export function StageRig({ onNext }: Props) {
       const psdParts = prev.attachments.filter((a) => a.sourceRect);
       if (psdParts.length === 0) {
         setPsdRigHint("没有带绝对坐标的 PSD 部件。先在第一步「解析 PSD 分层」并导入。");
+        setPsdRigCheck(null);
         return prev;
       }
       if (prev.bones.length === 0) {
         setPsdRigHint("还没有骨骼。请先在左侧选模板并「应用模板」（推荐人形）。");
+        setPsdRigCheck(null);
         return prev;
       }
       // 已被任意 slot 绑定的部件 id，避免重复建 slot。
@@ -94,19 +135,28 @@ export function StageRig({ onNext }: Props) {
       // PSD 数组靠前 = 最底层（psd-tools 底→顶遍历）→ zOrder 取正序，首层最小、最先画。
       const total = psdParts.length; // 仅用于提示「matched/total」
       let matched = 0;
+      let alreadyBound = 0;
       const unmatched: string[] = [];
       const missingBones: string[] = [];
+      const defaultSideWarnings: string[] = [];
 
       psdParts.forEach((att, index) => {
-        if (boundAttIds.has(att.id)) return; // 已绑定，跳过
-        const { boneName } = mapPsdLayerToBone(att.name);
-        if (!boneName) {
+        if (boundAttIds.has(att.id)) {
+          alreadyBound += 1;
+          return;
+        }
+        const { boneNames } = mapPsdLayerToBone(att.name);
+        if (boneNames.length === 0) {
           unmatched.push(getDisplayName(att));
           return;
         }
-        const bone = findBoneByName(prev, boneName);
+        if (boneNames.some((name) => name.endsWith("L")) && !sidedLayerPattern.test(att.name) && hasSidedIntent(att.name)) {
+          defaultSideWarnings.push(getDisplayName(att));
+        }
+        const boneName = boneNames.find((name) => findBoneByName(prev, name));
+        const bone = boneName ? findBoneByName(prev, boneName) : undefined;
         if (!bone) {
-          missingBones.push(`${getDisplayName(att)}→${boneName}`);
+          missingBones.push(`${getDisplayName(att)}→${boneNames.join("/")}`);
           return;
         }
         slots.push({
@@ -115,7 +165,7 @@ export function StageRig({ onNext }: Props) {
           displayName: att.displayName,
           boneId: bone.id,
           attachmentId: att.id,
-          zOrder: index, // PSD 底→顶：首层最小 zOrder（最先画、最底层），末层最上
+          zOrder: getPsdSlotZOrder(att, index), // 头部簇按语义稳定层级；其余沿用 PSD 底→顶顺序
         });
         matched += 1;
       });
@@ -135,10 +185,25 @@ export function StageRig({ onNext }: Props) {
         nextSkel = fit.skeleton;
         tips.push(fit.report);
       }
+      // 自动姿态识别：根据图层名 + sourceRect 推断 front/back/sideLeft/sideRight；
+      // 写进 context 供"生成动作"阶段决定模板高亮 + 投影。
+      const detection = detectPose(nextSkel);
+      setPoseDetection(detection);
+      tips.push(`姿态识别：${detection.pose}（置信度 ${(detection.confidence * 100).toFixed(0)}%）`);
       setPsdRigHint(tips.join(" "));
+      setPsdRigCheck({
+        total,
+        matched,
+        alreadyBound,
+        unmatched,
+        missingBones,
+        defaultSideWarnings,
+        keyParts: buildKeyPartChecks(prev),
+        sidePendingWarning: poseMode === "sidePending",
+      });
       return nextSkel;
     });
-  }, [setSkeleton]);
+  }, [poseMode, setSkeleton, setPoseDetection]);
 
   // 按名称自动绑定：槽位名 === 部件名（姿态语义部件直接命中），只填未绑定的槽位。
   const autoRig = useCallback(() => {
@@ -189,14 +254,43 @@ export function StageRig({ onNext }: Props) {
   }, [currentTemplate, selectedSlot]);
 
   const ready = skeleton.bones.length > 0 && skeleton.slots.some((s) => s.attachmentId);
+  const poseNotes: Record<CharacterPoseMode, string> = {
+    front: "正面 PSD 可使用人形/细分人形模板，当前 PSD 拟合按左右对称处理。",
+    pseudoSide: "伪侧面仍使用正面素材，通过层级、缩放和动作幅度模拟 3Q 效果。",
+    sidePending: "真侧面需要侧面 PSD 模板和近/远侧绑定规则；当前只提示，不按侧面自动拟合。",
+  };
 
   return (
     <div className="bone-stage">
       <div className="info-box">
-        <strong>第二步：选模板，把切片绑到对应槽位</strong>
+        <strong>第二步：选择角色结构与朝向，再绑定 PSD 部件</strong>
         <p className="muted">
-          模板提供骨骼层级和槽位定义，左侧选模板后点"应用模板"。中间画布可拖动骨骼关节点和末端，右侧把已切好的部件绑到槽位。
+          模板提供骨骼层级和槽位定义。正面和伪侧面先复用现有人形模板；真侧面模板仍在规划中，当前不会把正面 PSD 当成真实侧面处理。
         </p>
+      </div>
+
+      <div className="bone-mode-card">
+        <div>
+          <strong>角色结构</strong>
+          <p className="muted">人形 / 四足 / 道具会映射到左侧现有骨架模板。</p>
+        </div>
+        <div className="bone-pose-mode-row">
+          {([
+            ["front", "正面"],
+            ["pseudoSide", "伪侧面"],
+            ["sidePending", "真侧面"],
+          ] as Array<[CharacterPoseMode, string]>).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              className={`bone-pose-mode ${poseMode === mode ? "selected" : ""}`}
+              onClick={() => setPoseMode(mode)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="muted">{poseNotes[poseMode]}</p>
       </div>
 
       <div className="bone-rig-grid">
@@ -238,6 +332,34 @@ export function StageRig({ onNext }: Props) {
               )}
               {autoRigHint && <p className="muted">{autoRigHint}</p>}
               {psdRigHint && <p className="muted">{psdRigHint}</p>}
+              {psdRigCheck && (
+                <div className="bone-rig-checklist">
+                  <strong>PSD 绑定检查</strong>
+                  <div className="bone-stat-row">
+                    <span>新增绑定：{psdRigCheck.matched}/{psdRigCheck.total}</span>
+                    <span>已存在：{psdRigCheck.alreadyBound}</span>
+                  </div>
+                  <ul>
+                    {psdRigCheck.keyParts.map((part) => (
+                      <li key={part.label} className={part.ok ? "ok" : "warning"}>
+                        {part.ok ? "通过" : "缺少"}：{part.label}
+                      </li>
+                    ))}
+                    {psdRigCheck.unmatched.map((name) => (
+                      <li key={`unmatched-${name}`} className="warning">未命中图层：{name}</li>
+                    ))}
+                    {psdRigCheck.missingBones.map((name) => (
+                      <li key={`missing-${name}`} className="warning">目标骨骼缺失：{name}</li>
+                    ))}
+                    {psdRigCheck.defaultSideWarnings.map((name) => (
+                      <li key={`side-${name}`} className="warning">缺少左右标记，已按默认侧匹配：{name}</li>
+                    ))}
+                    {psdRigCheck.sidePendingWarning && (
+                      <li className="warning">真侧面模板尚未启用，当前不会按近/远侧自动绑定。</li>
+                    )}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
           <div className="bone-slot-list">
@@ -331,7 +453,7 @@ export function StageRig({ onNext }: Props) {
 
       <div className="export-actions">
         <button onClick={onNext} disabled={!ready}>
-          下一步：动作模板 →
+          下一步：生成动作 →
         </button>
       </div>
     </div>

@@ -3,18 +3,22 @@
 // 切片结果转为 AttachmentImage[]，写入当前 skeleton.attachments。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { poseDetect, resolveMediaUrl } from "@/api/spriteApi";
+import { humanParse, poseDetect, psdSplit, resolveMediaUrl } from "@/api/spriteApi";
 import { useAppActions, useAppState } from "@/state/AppContext";
 import {
   analyzeUiSmartSlices,
   cropUiSlice,
   defaultUiSmartSliceOptions,
+  downloadSlicesAsZip,
   loadImageElement,
   UiSliceCandidate,
+  ZipSliceEntry,
 } from "@/features/smart-slice/uiSmartSlice";
 import { useBoneAnim } from "../BoneAnimContext";
-import { AttachmentImage, makeId, safeName } from "../model/skeletonModel";
+import { AttachmentImage, createEmptySkeleton, getDisplayName, makeId, safeName } from "../model/skeletonModel";
 import { poseToParts } from "../model/poseToParts";
+import { parseToParts } from "../model/parseToParts";
+import { layersToParts } from "../model/layersToParts";
 
 interface Props {
   onNext: () => void;
@@ -32,6 +36,14 @@ interface BoneSliceQuality {
   actions: string[];
   canImport: boolean;
   canContinue: boolean;
+}
+
+function mergeAttachmentsByName(prev: AttachmentImage[], nextParts: AttachmentImage[]): AttachmentImage[] {
+  const oldByName = new Map(prev.map((a) => [a.name, a]));
+  const nextNames = new Set(nextParts.map((p) => p.name));
+  const kept = prev.filter((a) => !nextNames.has(a.name));
+  const next = nextParts.map((p) => ({ ...p, id: oldByName.get(p.name)?.id ?? makeId("att") }));
+  return [...kept, ...next];
 }
 
 function evaluateBoneSliceQuality(items: SliceItem[], sourceSize: { width: number; height: number }, attachmentCount: number): BoneSliceQuality {
@@ -98,7 +110,7 @@ function evaluateBoneSliceQuality(items: SliceItem[], sourceSize: { width: numbe
 export function StageSlice({ onNext }: Props) {
   const { upload, sourcePreviewUrl, preview, busy } = useAppState();
   const { runPreview, importSourceFile } = useAppActions();
-  const { skeleton, setSkeleton } = useBoneAnim();
+  const { skeleton, setSkeleton, assetMode, setAssetMode, setSelectedSlotId, setSelectedBoneId, setSelectedAnimationId } = useBoneAnim();
 
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [sourceUrl, setSourceUrl] = useState("");
@@ -109,6 +121,13 @@ export function StageSlice({ onNext }: Props) {
   const [poseParts, setPoseParts] = useState<AttachmentImage[]>([]);
   const [poseAnalyzing, setPoseAnalyzing] = useState(false);
   const [poseMessage, setPoseMessage] = useState<{ tone: "info" | "warning"; text: string } | null>(null);
+  const [parseParts, setParseParts] = useState<AttachmentImage[]>([]);
+  const [parseAnalyzing, setParseAnalyzing] = useState(false);
+  const [parseMessage, setParseMessage] = useState<{ tone: "info" | "warning"; text: string } | null>(null);
+  const [psdParts, setPsdParts] = useState<AttachmentImage[]>([]);
+  const [psdAnalyzing, setPsdAnalyzing] = useState(false);
+  const [psdMessage, setPsdMessage] = useState<{ tone: "info" | "warning"; text: string } | null>(null);
+  const psdFileRef = useRef<HTMLInputElement | null>(null);
 
   const activeSource = preview?.processed_url || sourcePreviewUrl;
   const usingProcessed = Boolean(preview?.processed_url);
@@ -217,12 +236,109 @@ export function StageSlice({ onNext }: Props) {
   // 语义部件按原名导入；同名先清掉旧的同名部件，再追加，保证语义名稳定不被加后缀。
   const importPosePartsToSkeleton = useCallback(() => {
     if (poseParts.length === 0) return;
-    const names = new Set(poseParts.map((p) => p.name));
     setSkeleton((prev) => ({
       ...prev,
-      attachments: [...prev.attachments.filter((a) => !names.has(a.name)), ...poseParts.map((p) => ({ ...p, id: makeId("att") }))],
+      attachments: mergeAttachmentsByName(prev.attachments, poseParts),
     }));
   }, [poseParts, setSkeleton]);
+
+  // AI 语义解析（SegFormer）：像素级分出头/躯干/服饰/四肢等，部位远多于姿态矩形切片。
+  const runHumanParse = useCallback(async () => {
+    if (!sourceUrl) return;
+    setParseAnalyzing(true);
+    setParseMessage(null);
+    try {
+      const dataUrl = await toDataUrl();
+      if (!dataUrl) {
+        setParseMessage({ tone: "warning", text: "无法读取源图，请重新导入图片。" });
+        return;
+      }
+      const result = await humanParse(dataUrl);
+      const { parts, warnings: parseWarnings } = parseToParts(result);
+      if (parts.length === 0) {
+        setParseParts([]);
+        setParseMessage({ tone: "warning", text: ["未解析出有效部件，请确认图中有清晰人物。", ...parseWarnings].join(" ") });
+        return;
+      }
+      setParseParts(parts);
+      const tips = [`语义解析成功：${parts.length} 个部件（${result.labels_present.join("、")}）。`, ...parseWarnings];
+      setParseMessage({ tone: parseWarnings.length > 0 ? "warning" : "info", text: tips.join(" ") });
+    } catch (err) {
+      setParseParts([]);
+      setParseMessage({ tone: "warning", text: `语义解析失败：${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setParseAnalyzing(false);
+    }
+  }, [sourceUrl, toDataUrl]);
+
+  // 语义解析部件按原名导入（同名覆盖），与姿态部件互补：head/torso 命中 autoRig，四肢仍可叠加姿态结果。
+  const importParsePartsToSkeleton = useCallback(() => {
+    if (parseParts.length === 0) return;
+    setSkeleton((prev) => ({
+      ...prev,
+      attachments: mergeAttachmentsByName(prev.attachments, parseParts),
+    }));
+  }, [parseParts, setSkeleton]);
+
+  // 重新导入 PSD 前清空工作台：旧骨架（骨骼/槽位/动画/部件）+ 本地切片/姿态/解析状态全部归零，
+  // 避免上一次 PSD 的部件、绑骨和动画残留，污染新角色（行走腿/手错乱、脸朝向异常的根因）。
+  const resetWorkbench = useCallback(() => {
+    setSkeleton(createEmptySkeleton("character"));
+    setSelectedSlotId(null);
+    setSelectedBoneId(null);
+    setSelectedAnimationId(null);
+    setItems([]);
+    setWarnings([]);
+    setPoseParts([]);
+    setPoseMessage(null);
+    setParseParts([]);
+    setParseMessage(null);
+    setPsdParts([]);
+    setPsdMessage(null);
+  }, [setSkeleton, setSelectedSlotId, setSelectedBoneId, setSelectedAnimationId]);
+
+  // PSD 分层解析：选 .psd 文件 → base64 → 后端 psd-split → layersToParts（带绝对坐标，一比一还原）。
+  const handlePsdFile = useCallback(async (file: File | null) => {
+    if (!file) return;
+    // 解析新 PSD 即视为重做一个角色：先彻底重置，再写入本次结果。
+    resetWorkbench();
+    setPsdAnalyzing(true);
+    setPsdMessage(null);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("读取 PSD 文件失败"));
+        reader.readAsDataURL(file);
+      });
+      const result = await psdSplit({ dataUrl });
+      const { parts, warnings } = layersToParts(result);
+      if (parts.length === 0) {
+        setPsdParts([]);
+        setPsdMessage({ tone: "warning", text: ["PSD 未解析出可用图层。", ...warnings].join(" ") });
+        return;
+      }
+      setPsdParts(parts);
+      setPsdMessage({
+        tone: "info",
+        text: [`PSD 解析成功：${parts.length} 个图层（画布 ${result.width}×${result.height}）。已清空旧工作台。`, ...warnings].join(" "),
+      });
+    } catch (err) {
+      setPsdParts([]);
+      setPsdMessage({ tone: "warning", text: `PSD 解析失败：${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setPsdAnalyzing(false);
+    }
+  }, [resetWorkbench]);
+
+  // PSD 图层导入：整批替换部件库（解析新 PSD 时已重置工作台，这里用全新部件覆盖，保留 sourceRect 供一比一还原）。
+  const importPsdPartsToSkeleton = useCallback(() => {
+    if (psdParts.length === 0) return;
+    setSkeleton((prev) => ({
+      ...prev,
+      attachments: mergeAttachmentsByName(prev.attachments, psdParts),
+    }));
+  }, [psdParts, setSkeleton]);
 
   const importToSkeleton = useCallback(() => {
     if (!quality.canImport) return;
@@ -248,17 +364,64 @@ export function StageSlice({ onNext }: Props) {
   }, [items, quality.canImport, skeleton.attachments, setSkeleton]);
 
   const clearAttachments = useCallback(() => {
-    setSkeleton((prev) => ({ ...prev, attachments: [] }));
+    setSkeleton((prev) => ({ ...prev, attachments: [], slots: prev.slots.map((s) => ({ ...s, attachmentId: null })) }));
   }, [setSkeleton]);
+
+  const exportPoseZip = useCallback(async () => {
+    if (poseParts.length === 0) return;
+    const entries: ZipSliceEntry[] = poseParts.map((p) => ({ name: p.name, pngDataUrl: p.pngDataUrl, width: p.width, height: p.height }));
+    await downloadSlicesAsZip(entries, "pose-parts.zip");
+  }, [poseParts]);
+
+  const exportParseZip = useCallback(async () => {
+    if (parseParts.length === 0) return;
+    const entries: ZipSliceEntry[] = parseParts.map((p) => ({ name: p.name, pngDataUrl: p.pngDataUrl, width: p.width, height: p.height }));
+    await downloadSlicesAsZip(entries, "parse-parts.zip");
+  }, [parseParts]);
+
+  const exportSlicesZip = useCallback(async () => {
+    if (items.length === 0) return;
+    const entries: ZipSliceEntry[] = items.map((it) => ({ name: it.candidate.name, pngDataUrl: it.pngDataUrl, width: it.candidate.w, height: it.candidate.h }));
+    await downloadSlicesAsZip(entries, "smart-slices.zip");
+  }, [items]);
 
   return (
     <div className="bone-stage">
       <div className="info-box">
-        <strong>第一步：把角色图切成部件</strong>
+        <strong>第一步：选择角色素材来源</strong>
         <p className="muted">
-          复用 UI 智能切片：导入一张角色图，可选去底，再跑切片，结果写入骨骼模型的部件库。
-          源图来自"制作流水线"的去底输出（{preview?.processed_url ? "已就绪" : "未生成"}）或当前导入素材。
+          推荐 PSD 分层角色：保留原始坐标，后续可一键绑骨。单图路径适合去底后辅助切片；已切部件路径适合直接整理部件库。
         </p>
+      </div>
+
+      <div className="bone-import-mode-grid">
+        <button
+          type="button"
+          className={`bone-import-mode-card ${assetMode === "psd" ? "selected" : ""}`}
+          onClick={() => setAssetMode("psd")}
+        >
+          <strong>PSD 分层角色</strong>
+          <span className="bone-badge recommended">推荐</span>
+          <small>解析图层并保留 PSD 原始坐标，最适合后续一键绑骨。</small>
+        </button>
+        <button
+          type="button"
+          className={`bone-import-mode-card ${assetMode === "singleImage" ? "selected" : ""}`}
+          onClick={() => setAssetMode("singleImage")}
+        >
+          <strong>单图 / 去底</strong>
+          <span className="bone-badge">辅助</span>
+          <small>从当前角色图生成去底图，再用姿态识别或 AI 解析拆件。</small>
+        </button>
+        <button
+          type="button"
+          className={`bone-import-mode-card ${assetMode === "sliced" ? "selected" : ""}`}
+          onClick={() => setAssetMode("sliced")}
+        >
+          <strong>已切部件 / 切片</strong>
+          <span className="bone-badge">兜底</span>
+          <small>用几何切片导入部件，适合透明拆件图或手工修正。</small>
+        </button>
       </div>
 
       <div className={`bone-source-banner ${usingProcessed ? "processed" : "raw"}`}>
@@ -270,7 +433,37 @@ export function StageSlice({ onNext }: Props) {
         </span>
       </div>
 
-      <div className="export-actions">
+      <input
+        ref={psdFileRef}
+        type="file"
+        accept=".psd,.psb,image/vnd.adobe.photoshop"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          void handlePsdFile(e.target.files?.[0] || null);
+          e.target.value = "";
+        }}
+      />
+
+      {assetMode === "psd" && (
+        <section className="bone-psd-import-panel">
+          <div>
+            <strong>PSD 分层导入</strong>
+            <p className="muted">选择 PSD/PSB 文件后按图层一比一解析，保留原始坐标，再导入到骨架部件库。</p>
+          </div>
+          <div className="export-actions">
+            <button onClick={() => psdFileRef.current?.click()} disabled={psdAnalyzing} title="选择 PSD 分层立绘，按图层一比一拆件并保留原始坐标">
+              {psdAnalyzing ? "解析 PSD 中…" : "选择 PSD 文件 / 解析分层"}
+            </button>
+            <button onClick={importPsdPartsToSkeleton} disabled={psdParts.length === 0} title={psdParts.length === 0 ? "先选择并解析 PSD 文件" : "按图层名导入，保留绝对坐标，同名覆盖"}>
+              导入 PSD 部件（+{psdParts.length}）
+            </button>
+          </div>
+        </section>
+      )}
+
+      <details className="bone-aux-tools" open={assetMode !== "psd"}>
+        <summary>辅助工具：去底、姿态识别、AI 语义解析、几何切片</summary>
+        <div className="export-actions">
         <input
           ref={fileRef}
           type="file"
@@ -278,7 +471,7 @@ export function StageSlice({ onNext }: Props) {
           style={{ display: "none" }}
           onChange={(e) => void handleFile(e.target.files?.[0] || null)}
         />
-        <button onClick={() => fileRef.current?.click()} disabled={busy || analyzing}>
+        <button onClick={() => { setAssetMode("singleImage"); fileRef.current?.click(); }} disabled={busy || analyzing}>
           选择单图
         </button>
         <button onClick={runPreview} disabled={busy || analyzing || !upload?.id}>
@@ -287,27 +480,63 @@ export function StageSlice({ onNext }: Props) {
         <button onClick={runPoseDetect} disabled={poseAnalyzing || analyzing || !sourceUrl}>
           {poseAnalyzing ? "识别人体中…" : "按姿态识别部位（推荐）"}
         </button>
-        <button onClick={importPosePartsToSkeleton} disabled={poseParts.length === 0} title={poseParts.length === 0 ? "先点「按姿态识别部位」" : "按语义名导入，同名部件会被覆盖"}>
+        <button onClick={() => { setAssetMode("sliced"); importPosePartsToSkeleton(); }} disabled={poseParts.length === 0} title={poseParts.length === 0 ? "先点「按姿态识别部位」" : "按语义名导入，同名部件会被覆盖"}>
           导入语义部件（+{poseParts.length}）
+        </button>
+        <button onClick={exportPoseZip} disabled={poseParts.length === 0} title="导出姿态语义部件为 zip 压缩包">
+          导出语义部件 ZIP
+        </button>
+        <button onClick={runHumanParse} disabled={parseAnalyzing || poseAnalyzing || analyzing || !sourceUrl} title="SegFormer 像素级人体解析，部位最多最准（需已下载模型）">
+          {parseAnalyzing ? "AI 解析中…" : "AI 语义解析切片（部位最多）"}
+        </button>
+        <button onClick={() => { setAssetMode("sliced"); importParsePartsToSkeleton(); }} disabled={parseParts.length === 0} title={parseParts.length === 0 ? "先点「AI 语义解析切片」" : "按语义名导入，同名部件会被覆盖"}>
+          导入解析部件（+{parseParts.length}）
+        </button>
+        <button onClick={exportParseZip} disabled={parseParts.length === 0} title="导出 AI 语义解析部件为 zip 压缩包">
+          导出解析部件 ZIP
         </button>
         <button onClick={runAnalyze} disabled={analyzing || poseAnalyzing || !sourceUrl}>
           {analyzing ? "识别中…" : "智能识别切片（几何兜底）"}
         </button>
-        <button onClick={importToSkeleton} disabled={!quality.canImport} title={!quality.canImport && items.length > 0 ? "当前切片质量不足，不能导入骨架" : undefined}>
+        <button onClick={() => { setAssetMode("sliced"); importToSkeleton(); }} disabled={!quality.canImport} title={!quality.canImport && items.length > 0 ? "当前切片质量不足，不能导入骨架" : undefined}>
           导入到骨架（+{items.length}）
+        </button>
+        <button onClick={exportSlicesZip} disabled={items.length === 0} title="导出几何切片结果为 zip 压缩包">
+          导出切片 ZIP
         </button>
         <button onClick={clearAttachments} disabled={skeleton.attachments.length === 0}>
           清空已导入部件
         </button>
-        <button onClick={onNext} disabled={!quality.canContinue} title={!quality.canContinue ? "至少需要 3 个已导入部件才能进入骨架搭建" : undefined}>
-          下一步：骨架搭建 →
-        </button>
+        </div>
+      </details>
+
+      <div className="bone-psd-summary">
+        <strong>PSD 分层状态</strong>
+        <div className="bone-stat-row">
+          <span>已解析图层：{psdParts.length}</span>
+          <span>已导入部件：{skeleton.attachments.filter((a) => a.sourceRect).length}</span>
+          <span>原始坐标：{psdParts.some((p) => p.sourceRect) || skeleton.attachments.some((a) => a.sourceRect) ? "已保留" : "未检测到"}</span>
+        </div>
       </div>
 
       {poseMessage && (
         <div className={`bone-pose-banner ${poseMessage.tone}`}>
           <strong>{poseMessage.tone === "info" ? "姿态识别结果" : "姿态识别提示"}</strong>
           <span>{poseMessage.text}</span>
+        </div>
+      )}
+
+      {parseMessage && (
+        <div className={`bone-pose-banner ${parseMessage.tone}`}>
+          <strong>{parseMessage.tone === "info" ? "AI 语义解析结果" : "AI 语义解析提示"}</strong>
+          <span>{parseMessage.text}</span>
+        </div>
+      )}
+
+      {psdMessage && (
+        <div className={`bone-pose-banner ${psdMessage.tone}`}>
+          <strong>{psdMessage.tone === "info" ? "PSD 分层解析结果" : "PSD 分层解析提示"}</strong>
+          <span>{psdMessage.text}</span>
         </div>
       )}
 
@@ -340,6 +569,12 @@ export function StageSlice({ onNext }: Props) {
         </div>
       )}
 
+      <div className="export-actions">
+        <button onClick={onNext} disabled={!quality.canContinue} title={!quality.canContinue ? "至少需要 3 个已导入部件才能进入骨架绑定" : undefined}>
+          下一步：骨架绑定 →
+        </button>
+      </div>
+
       <div className="bone-slice-grid">
         <div className="bone-slice-source">
           {sourceUrl ? (
@@ -361,10 +596,45 @@ export function StageSlice({ onNext }: Props) {
               <div className="bone-thumb-grid">
                 {poseParts.map((p) => (
                   <div key={p.id} className="bone-thumb pose">
-                    <img src={p.pngDataUrl} alt={p.name} />
-                    <span>{p.name}</span>
+                    <img src={p.pngDataUrl} alt={getDisplayName(p)} />
+                    <span>{getDisplayName(p)}</span>
                     <small>
                       {p.width}×{p.height}
+                    </small>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {parseParts.length > 0 && (
+            <>
+              <h4>AI 语义解析部件（{parseParts.length}）</h4>
+              <div className="bone-thumb-grid">
+                {parseParts.map((p) => (
+                  <div key={p.id} className="bone-thumb pose">
+                    <img src={p.pngDataUrl} alt={getDisplayName(p)} />
+                    <span>{getDisplayName(p)}</span>
+                    <small>
+                      {p.width}×{p.height}
+                    </small>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {psdParts.length > 0 && (
+            <>
+              <h4>PSD 分层部件（{psdParts.length}，一比一坐标）</h4>
+              <div className="bone-thumb-grid">
+                {psdParts.map((p) => (
+                  <div key={p.id} className="bone-thumb pose">
+                    <img src={p.pngDataUrl} alt={getDisplayName(p)} />
+                    <span>{getDisplayName(p)}</span>
+                    <small>
+                      {p.width}×{p.height}
+                      {p.sourceRect ? ` @(${p.sourceRect.x},${p.sourceRect.y})` : ""}
                     </small>
                   </div>
                 ))}
@@ -390,8 +660,8 @@ export function StageSlice({ onNext }: Props) {
           <div className="bone-thumb-grid">
             {skeleton.attachments.map((a) => (
               <div key={a.id} className="bone-thumb">
-                <img src={a.pngDataUrl} alt={a.name} />
-                <span>{a.name}</span>
+                <img src={a.pngDataUrl} alt={getDisplayName(a)} />
+                <span>{getDisplayName(a)}</span>
                 <small>
                   {a.width}×{a.height}
                 </small>

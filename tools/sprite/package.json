@@ -16,15 +16,14 @@
     "desktop:dev": "npm run build && node ./scripts/run-electron-desktop.mjs",
     "package:desktop:win": "node ./scripts/package-desktop-win.mjs"
   },
-  "dependencies": {
-    "image-q": "^4.0.0"
-  },
   "devDependencies": {
+    "@types/jszip": "^3.4.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "electron": "^41.5.0",
     "electron-builder": "^26.8.1",
+    "jszip": "^3.10.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.6.3",
@@ -43,6 +42,7 @@
       "build/icon.png",
       "build/icon.ico",
       "server.py",
+      "sprite_lab/**/*",
       "requirements.txt",
       "requirements-ai.txt",
       "setup_ai_runtime.bat",
@@ -59,11 +59,13 @@
       "!work/**/*",
       "!node_modules/**/*",
       "!**/{test,__tests__,tests,example,examples}",
+      "!**/__pycache__/**",
       "!**/*.{map}"
     ],
     "asar": true,
     "asarUnpack": [
       "server.py",
+      "sprite_lab/**/*",
       "requirements*.txt",
       "setup_ai_runtime.bat",
       "runtime/**/*"
@@ -89,5 +91,9 @@
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico"
     }
+  },
+  "dependencies": {
+    "image-q": "^4.0.0",
+    "zustand": "^5.0.14"
   }
 }

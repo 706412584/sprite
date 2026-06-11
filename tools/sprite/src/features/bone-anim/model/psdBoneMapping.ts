@@ -11,28 +11,40 @@ interface MappingRule {
   bone: string;
   // 该规则是否区分左右：true 时按图层 -l/-r 后缀拼成 boneL/boneR。
   sided: boolean;
+  // 细分模板优先骨，基础模板不存在时由 StageRig 回退到 bone。
+  detailedBone?: string;
+  // 区分左右的规则是否把基础回退骨也拼 L/R；五官回退到 head 这类中线骨时设为 false。
+  fallbackSided?: boolean;
+  // 区分左右的整层服饰未带 -l/-r 时，降级到中线骨，避免整张图被单侧行走骨拖裂。
+  unsidedBoneNames?: string[];
 }
 
-// 顺序敏感：靠前的规则优先命中（headwear 要在 wear 之前，避免被 topwear/legwear 抢）。
+// 顺序敏感：越具体的规则越靠前，避免 hair 被 head 抢、skirt 被 wear 抢。
 const RULES: MappingRule[] = [
-  // 头部簇：头发、头饰、脸、五官、耳朵都跟 head 骨
-  { keywords: ["hair", "headwear", "head", "hat", "helmet", "face", "mouth", "nose", "eye", "ear", "brow", "lash", "iris", "irid", "pupil", "horn"], bone: "head", sided: false },
-  // 手部 / 前臂簇：手套、手、武器、持物跟前臂
-  { keywords: ["handwear", "hand", "glove", "weapon", "wrist", "forearm"], bone: "forearm", sided: true },
-  // 大臂 / 肩簇
-  { keywords: ["upperarm", "shoulder", "sleeve", "arm"], bone: "upperArm", sided: true },
-  // 腿 / 鞋簇：legwear、靴、脚跟小腿
-  { keywords: ["legwear", "shoe", "boot", "foot", "feet", "shin", "calf"], bone: "shin", sided: true },
-  // 大腿簇
-  { keywords: ["thigh", "leg"], bone: "thigh", sided: true },
-  // 躯干簇：上衣、下装、裙、披风、腰带、身体，外加 object/prop/item/misc 这类无明确部位语义的杂项
-  // （最后兜底，避免抢走更具体的部位）。杂项默认归躯干，保证全部图层都有骨可绑，用户可手动改。
-  { keywords: ["topwear", "bottomwear", "torso", "body", "chest", "coat", "cloak", "cape", "robe", "dress", "skirt", "belt", "waist", "wear", "object", "prop", "item", "accessory", "misc", "extra", "other"], bone: "torso", sided: false },
+  { keywords: ["mouth", "lip", "teeth", "tongue"], bone: "head", sided: false, detailedBone: "mouth" },
+  { keywords: ["eye", "brow", "lash", "iris", "irid", "pupil"], bone: "head", sided: true, detailedBone: "eye", fallbackSided: false, unsidedBoneNames: ["head"] },
+  { keywords: ["backhair", "hairback", "rearhair"], bone: "head", sided: false, detailedBone: "hairBack" },
+  { keywords: ["fronthair", "hairfront", "bang", "bangs", "hair", "headwear", "hat", "helmet", "horn"], bone: "head", sided: false, detailedBone: "hairFront" },
+  { keywords: ["face", "head", "nose", "ear"], bone: "head", sided: false },
+  { keywords: ["handwear", "hand", "glove", "weapon", "wrist"], bone: "forearm", sided: true, detailedBone: "hand", unsidedBoneNames: ["chest", "torso"] },
+  { keywords: ["forearm"], bone: "forearm", sided: true, unsidedBoneNames: ["chest", "torso"] },
+  { keywords: ["upperarm", "shoulder", "sleeve", "arm"], bone: "upperArm", sided: true, unsidedBoneNames: ["chest", "torso"] },
+  { keywords: ["shoe", "boot", "foot", "feet"], bone: "shin", sided: true, detailedBone: "foot", unsidedBoneNames: ["waist", "torso"] },
+  { keywords: ["legwear", "shin", "calf"], bone: "shin", sided: true, unsidedBoneNames: ["waist", "torso"] },
+  { keywords: ["thigh", "leg"], bone: "thigh", sided: true, unsidedBoneNames: ["waist", "torso"] },
+  { keywords: ["cape", "cloak"], bone: "torso", sided: false, detailedBone: "cape" },
+  { keywords: ["skirt"], bone: "torso", sided: false, detailedBone: "skirt" },
+  { keywords: ["belt", "waist", "bottomwear"], bone: "torso", sided: false, detailedBone: "waist" },
+  { keywords: ["topwear", "chest", "coat", "robe", "dress"], bone: "torso", sided: false, detailedBone: "chest" },
+  // 杂项默认归躯干，保证全部图层都有骨可绑，用户可手动改。
+  { keywords: ["torso", "body", "wear", "object", "prop", "item", "accessory", "misc", "extra", "other"], bone: "torso", sided: false },
 ];
 
 export interface PsdBoneMatch {
-  /** 目标骨骼 name（已拼好左右，如 forearmL）；未命中为 null。 */
+  /** 首选目标骨骼 name（已拼好左右，如 forearmL）；未命中为 null。 */
   boneName: string | null;
+  /** 从细分到基础的候选骨骼名，StageRig 会选择当前模板中存在的第一个。 */
+  boneNames: string[];
   /** 命中的关键词（调试 / 提示用）。 */
   keyword: string | null;
 }
@@ -59,6 +71,27 @@ function tokenMatches(token: string, keyword: string): boolean {
   return token === keyword || token.startsWith(keyword);
 }
 
+function hasTokenPair(tokens: string[], first: string, second: string): boolean {
+  return tokens.some((token, index) => tokenMatches(token, first) && Boolean(tokens[index + 1]) && tokenMatches(tokens[index + 1], second));
+}
+
+function keywordMatches(tokens: string[], keyword: string): boolean {
+  const tokenHit = tokens.some((t) => tokenMatches(t, keyword));
+  if (keyword === "backhair") return tokenHit || hasTokenPair(tokens, "back", "hair");
+  if (keyword === "hairback") return tokenHit || hasTokenPair(tokens, "hair", "back");
+  if (keyword === "fronthair") return tokenHit || hasTokenPair(tokens, "front", "hair");
+  if (keyword === "hairfront") return tokenHit || hasTokenPair(tokens, "hair", "front");
+  return tokenHit;
+}
+
+function withSide(base: string, side: "L" | "R" | null): string {
+  return `${base}${side ?? "L"}`;
+}
+
+function unique(names: string[]): string[] {
+  return Array.from(new Set(names));
+}
+
 /**
  * 把单个 PSD 图层名映射到 humanoid 骨骼名。
  * @param layerName 原始图层名（如 "handwear-l" / "front_hair" / "topwear"）
@@ -68,14 +101,19 @@ export function mapPsdLayerToBone(layerName: string): PsdBoneMatch {
   const side = detectSide(lower);
   const tokens = tokenize(lower);
   for (const rule of RULES) {
-    const hit = rule.keywords.find((k) => tokens.some((t) => tokenMatches(t, k)));
+    const hit = rule.keywords.find((k) => keywordMatches(tokens, k));
     if (!hit) continue;
-    if (rule.sided) {
-      // 分左右的骨：缺左右信息时默认归到左侧（保证有骨可绑，用户可手动改）。
-      const suffix = side ?? "L";
-      return { boneName: `${rule.bone}${suffix}`, keyword: hit };
+    if (rule.sided && !side && rule.unsidedBoneNames?.length) {
+      return { boneName: rule.unsidedBoneNames[0], boneNames: rule.unsidedBoneNames, keyword: hit };
     }
-    return { boneName: rule.bone, keyword: hit };
+    const fallback = rule.sided && rule.fallbackSided !== false ? withSide(rule.bone, side) : rule.bone;
+    const preferred = rule.detailedBone
+      ? rule.sided
+        ? withSide(rule.detailedBone, side)
+        : rule.detailedBone
+      : fallback;
+    const boneNames = unique([preferred, fallback]);
+    return { boneName: boneNames[0], boneNames, keyword: hit };
   }
-  return { boneName: null, keyword: null };
+  return { boneName: null, boneNames: [], keyword: null };
 }

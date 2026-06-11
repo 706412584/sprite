@@ -151,6 +151,8 @@ export interface TaskProgressInfo<T = unknown> {
   updated_at: string;
 }
 
+export type AtomicKeyingMode = "chroma" | "spriteflow" | "birefnet" | "corridorkey" | "luma";
+
 export type KeyingMode =
   | "none"
   | "chroma"
@@ -196,4 +198,8 @@ export interface ProcessSettings {
   sf_alpha_cutoff: number;
   sf_spill_removal: boolean;
   sf_spill_strength: number;
+  decontaminate_enabled: boolean;
+  decontaminate_radius: number;
+  decontaminate_strength: number;
+  matte_pipeline: AtomicKeyingMode[];
 }

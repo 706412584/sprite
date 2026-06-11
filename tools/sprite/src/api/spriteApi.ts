@@ -196,6 +196,61 @@ export function downloadPoseModel() {
   });
 }
 
+export interface HumanParsePart {
+  name: string;
+  displayName: string;
+  label: number;
+  bbox: { x: number; y: number; w: number; h: number };
+  area: number;
+  pngDataUrl: string;
+  width: number;
+  height: number;
+}
+
+export interface HumanParseResult {
+  parts: HumanParsePart[];
+  width: number;
+  height: number;
+  labels_present: string[];
+}
+
+// 人体语义解析（SegFormer ATR 18 类）：像素级分出头发/脸/上衣/裤/手臂/腿/鞋等，
+// 每个部件返回贴合轮廓的不规则透明 PNG。比 MediaPipe 矩形切片部位更多、更准。
+export function humanParse(imageDataUrl: string) {
+  return requestJson<HumanParseResult>("/api/human-parse", {
+    method: "POST",
+    body: JSON.stringify({ image_data_url: imageDataUrl }),
+  });
+}
+
+export interface PsdLayer {
+  name: string;
+  displayName: string;
+  bbox: { x: number; y: number; w: number; h: number };
+  pngDataUrl: string;
+  width: number;
+  height: number;
+  opacity: number;
+  visible: boolean;
+  canvasWidth: number;
+  canvasHeight: number;
+}
+
+export interface PsdSplitResult {
+  parts: PsdLayer[];
+  width: number;
+  height: number;
+}
+
+// PSD 分层解析：把 Photoshop 分层立绘按图层一比一拆成部件，保留每层在画布上的绝对坐标。
+// 传本地路径（psd_path）或 base64（psd_data_url），二选一。
+export function psdSplit(input: { path?: string; dataUrl?: string }) {
+  return requestJson<PsdSplitResult>("/api/psd-split", {
+    method: "POST",
+    body: JSON.stringify({ psd_path: input.path, psd_data_url: input.dataUrl }),
+  });
+}
+
 export function previewSemitransparentToBlack(previewId: string, alphaMin = 1, alphaMax = 254) {
   return requestJson<{ preview: PreviewInfo }>("/api/preview-semitransparent-to-black", {
     method: "POST",

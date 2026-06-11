@@ -1,6 +1,7 @@
-import { useAppState, useAppActions, keyingModes, updateNumber } from "@/state/AppContext";
+import { useState, useCallback, useRef } from "react";
+import { useAppState, useAppActions, atomicKeyingModes, updateNumber } from "@/state/AppContext";
 import { ToggleField } from "@/components/ui/ToggleField";
-import type { ProcessSettings } from "@/types/sprite";
+import type { AtomicKeyingMode, ProcessSettings } from "@/types/sprite";
 
 interface SettingsPanelProps {
   title?: string;
@@ -11,12 +12,62 @@ export function SettingsPanel({ title = "抠图模式与参数", showActions = t
   const { settings, modelStatuses, modelCacheDir, busy } = useAppState();
   const { setSettings, runPreview, runProcess } = useAppActions();
 
-  const usesBirefNet = settings.matte_mode.includes("birefnet");
-  const usesLuma = settings.matte_mode.includes("luma");
-  const usesChroma = settings.matte_mode === "chroma" || settings.matte_mode.includes("corridorkey");
-  const usesSpriteflow = settings.matte_mode === "spriteflow";
+  const pipeline = settings.matte_pipeline ?? [];
+  const usesBirefNet = pipeline.includes("birefnet");
+  const usesLuma = pipeline.includes("luma");
+  const usesChroma = pipeline.includes("chroma") || pipeline.includes("corridorkey");
+  const usesSpriteflow = pipeline.includes("spriteflow");
   const usesKeyColor = usesChroma || usesSpriteflow;
   const selectedModelStatus = modelStatuses.find((m) => m.key === settings.ai_model);
+
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+  const dragRef = useRef<number | null>(null);
+
+  const toggleMode = useCallback((mode: AtomicKeyingMode) => {
+    setSettings((c) => {
+      const cur = c.matte_pipeline ?? [];
+      const next = cur.includes(mode) ? cur.filter((m) => m !== mode) : [...cur, mode];
+      return { ...c, matte_pipeline: next, matte_mode: next[0] ?? "none" };
+    });
+  }, [setSettings]);
+
+  const removeFromPipeline = useCallback((idx: number) => {
+    setSettings((c) => {
+      const next = [...(c.matte_pipeline ?? [])];
+      next.splice(idx, 1);
+      return { ...c, matte_pipeline: next, matte_mode: next[0] ?? "none" };
+    });
+  }, [setSettings]);
+
+  const clearPipeline = useCallback(() => {
+    setSettings((c) => ({ ...c, matte_pipeline: [], matte_mode: "none" }));
+  }, [setSettings]);
+
+  const onDragStart = useCallback((idx: number) => {
+    dragRef.current = idx;
+    setDragIdx(idx);
+  }, []);
+
+  const onDragOver = useCallback((e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    setOverIdx(idx);
+  }, []);
+
+  const onDrop = useCallback((idx: number) => {
+    const from = dragRef.current;
+    if (from === null || from === idx) { setDragIdx(null); setOverIdx(null); return; }
+    setSettings((c) => {
+      const arr = [...(c.matte_pipeline ?? [])];
+      const [item] = arr.splice(from, 1);
+      arr.splice(idx, 0, item);
+      return { ...c, matte_pipeline: arr, matte_mode: arr[0] ?? "none" };
+    });
+    setDragIdx(null);
+    setOverIdx(null);
+  }, [setSettings]);
+
+  const onDragEnd = useCallback(() => { setDragIdx(null); setOverIdx(null); }, []);
 
   function applyLumaPreset(preset: "soft" | "balanced" | "strong") {
     const presets = {
@@ -31,19 +82,46 @@ export function SettingsPanel({ title = "抠图模式与参数", showActions = t
     <section className="panel">
       <h3>{title}</h3>
 
-      {/* 抠图模式选择 */}
-      <div className="mode-list">
-        {keyingModes.map((mode) => (
-          <button
-            key={mode.value}
-            className={mode.value === settings.matte_mode ? "selected" : ""}
-            onClick={() => setSettings((c) => ({ ...c, matte_mode: mode.value }))}
-          >
-            <strong>{mode.label}</strong>
-            <span>{mode.description}</span>
-          </button>
+      {/* 抠图管线多选 */}
+      <div className="pipeline-grid">
+        {atomicKeyingModes.map((mode) => (
+          <label key={mode.value} className={pipeline.includes(mode.value) ? "active" : ""} title={mode.description}>
+            <input type="checkbox" checked={pipeline.includes(mode.value)} onChange={() => toggleMode(mode.value)} />
+            <span>{mode.label}</span>
+          </label>
         ))}
+        <button type="button" className="pipeline-none-btn" onClick={clearPipeline} title="清空管线，不抠图">
+          清空（不抠图）
+        </button>
       </div>
+
+      {pipeline.length > 0 && (
+        <div className="pipeline-order">
+          <span className="pipeline-order-label">执行顺序（拖拽排序，各模式 alpha 合并）：</span>
+          {pipeline.map((mode, idx) => {
+            const info = atomicKeyingModes.find((m) => m.value === mode);
+            return (
+              <div
+                key={mode}
+                className={`pipeline-item${dragIdx === idx ? " dragging" : ""}${overIdx === idx ? " drag-over" : ""}`}
+                draggable
+                onDragStart={() => onDragStart(idx)}
+                onDragOver={(e) => onDragOver(e, idx)}
+                onDrop={() => onDrop(idx)}
+                onDragEnd={onDragEnd}
+              >
+                <span className="drag-handle">⠿</span>
+                <span className="pipe-label">{idx + 1}. {info?.label ?? mode}</span>
+                <button type="button" className="pipe-remove" onClick={() => removeFromPipeline(idx)}>×</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {pipeline.length === 0 && (
+        <p className="pipeline-empty">未选择抠图模式，将直接使用原图（不去底）。</p>
+      )}
 
       {/* 基础参数 */}
       <div className="settings-grid">
@@ -98,6 +176,21 @@ export function SettingsPanel({ title = "抠图模式与参数", showActions = t
           光晕像素
           <input type="number" min="0" value={settings.halo_pixels}
             onChange={(e) => setSettings((c) => ({ ...c, halo_pixels: updateNumber(e.target.value, c.halo_pixels) }))} />
+        </label>
+        <label>
+          边缘去污
+          <input type="checkbox" checked={settings.decontaminate_enabled}
+            onChange={(e) => setSettings((c) => ({ ...c, decontaminate_enabled: e.target.checked }))} />
+        </label>
+        <label>
+          去污半径
+          <input type="number" min="1" max="8" value={settings.decontaminate_radius}
+            onChange={(e) => setSettings((c) => ({ ...c, decontaminate_radius: updateNumber(e.target.value, c.decontaminate_radius) }))} />
+        </label>
+        <label>
+          去污强度
+          <input type="number" min="0" max="1" step="0.1" value={settings.decontaminate_strength}
+            onChange={(e) => setSettings((c) => ({ ...c, decontaminate_strength: updateNumber(e.target.value, c.decontaminate_strength) }))} />
         </label>
       </div>
 
@@ -167,7 +260,7 @@ export function SettingsPanel({ title = "抠图模式与参数", showActions = t
         </label>
         <label>
           CorridorKey 屏幕
-          <select value={settings.corridorkey_screen} disabled={!settings.matte_mode.includes("corridorkey")}
+          <select value={settings.corridorkey_screen} disabled={!pipeline.includes("corridorkey")}
             onChange={(e) => setSettings((c) => ({ ...c, corridorkey_screen: e.target.value as ProcessSettings["corridorkey_screen"] }))}>
             <option value="auto">Auto</option>
             <option value="green">Green</option>

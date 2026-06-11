@@ -14,6 +14,7 @@ export interface UiSliceCandidate extends UiSliceRect {
 
 export interface UiSmartSliceOptions {
   alphaThreshold: number;
+  alphaFloodThreshold: number;  // 连通性分析用的更高阈值，防止半透明边缘把元素粘连
   colorThreshold: number;
   minSize: number;
   minArea: number;
@@ -33,11 +34,12 @@ export interface UiSmartSliceResult {
 
 export const defaultUiSmartSliceOptions: UiSmartSliceOptions = {
   alphaThreshold: 16,
+  alphaFloodThreshold: 80,  // 连通性分析阈值，去底图用此值避免半透明边缘粘连元素
   colorThreshold: 36,
   minSize: 8,
   minArea: 16,
   padding: 4,
-  mergeGap: 6,
+  mergeGap: 2,
   maxAreaRatio: 0.8,
   maxAspectRatio: 20,
   includeThin: false,
@@ -70,17 +72,32 @@ export async function analyzeUiSmartSlices(dataUrl: string, inputOptions: Partia
   ctx.drawImage(img, 0, 0);
 
   const image = ctx.getImageData(0, 0, width, height);
-  const mask = buildContentMask(image.data, width, height, options.alphaThreshold, options.colorThreshold);
-  const components = detectComponents(mask, width, height);
+  const hasTransparency = detectTransparency(image.data, options.alphaThreshold);
+
+  // 去底图（有透明通道）：padding 和 mergeGap 过大会把相邻独立元素合并成大框，自动收紧
+  const effectivePadding = hasTransparency && !("padding" in inputOptions) ? 1 : options.padding;
+  const effectiveMergeGap = hasTransparency && !("mergeGap" in inputOptions) ? 0 : options.mergeGap;
+
+  // 去底图用更高的 alphaFloodThreshold 做连通性分析，避免半透明边缘/阴影把独立元素粘连
+  const contentMask = buildContentMask(image.data, width, height, options.alphaThreshold, options.colorThreshold);
+  const floodMask = hasTransparency
+    ? buildContentMask(image.data, width, height, options.alphaFloodThreshold, options.colorThreshold)
+    : contentMask;
+  const components = detectComponents(floodMask, width, height);
+  // 去底图：用宽松 contentMask 把半透明边缘也纳入 bbox（仅扩展已有连通域的边界，不合并）
+  const baseComponents = hasTransparency
+    ? components.map((box) => tightenBoxToContentMask(box, contentMask, width, height))
+    : components;
+
   const warnings: string[] = [];
   if (components.length === 0) warnings.push("未检测到可切片区域，请先去底或降低 Alpha 阈值。");
 
   const imageArea = width * height;
   const minArea = Math.max(options.minArea, Math.round(imageArea * 0.00002));
-  const padded = components
+  const padded = baseComponents
     .filter((box) => box.area >= minArea)
-    .map((box) => padRect(box, options.padding, width, height));
-  const candidates = buildCandidates(mergeRects(padded, options.mergeGap), imageArea, options);
+    .map((box) => padRect(box, effectivePadding, width, height));
+  const candidates = buildCandidates(mergeRects(padded, effectiveMergeGap), imageArea, options);
   const finalCandidates = candidates.length > 0 ? candidates : buildCandidates(padded, imageArea, options);
 
   if (components.length > 0 && finalCandidates.length === 0) warnings.push("检测到了内容，但被过滤规则排除；可开启细长元素或降低最小尺寸。");
@@ -184,6 +201,29 @@ function detectComponents(mask: Uint8Array, width: number, height: number): Comp
   }
 }
 
+// 在 floodMask 连通域的 bbox 内，用宽松 contentMask 重新收紧边界（纳入半透明边缘）
+// 不往外扩搜索范围，避免把相邻框的像素包进来
+function tightenBoxToContentMask(box: ComponentBox, contentMask: Uint8Array, width: number, height: number): ComponentBox {
+  let minX = box.x + box.w;
+  let minY = box.y + box.h;
+  let maxX = box.x;
+  let maxY = box.y;
+  let area = 0;
+  for (let y = box.y; y < box.y + box.h; y++) {
+    for (let x = box.x; x < box.x + box.w; x++) {
+      if (!contentMask[y * width + x]) continue;
+      area++;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (area === 0) return box;
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1, area };
+}
+
+
 function padRect(rect: ComponentBox, padding: number, width: number, height: number): ComponentBox {
   const x = Math.max(0, rect.x - padding);
   const y = Math.max(0, rect.y - padding);
@@ -211,13 +251,17 @@ function mergeRects(rects: ComponentBox[], gap: number): ComponentBox[] {
   return result;
 }
 
-function shouldMerge(a: UiSliceRect, b: UiSliceRect, gap: number): boolean {
-  if (iou(a, b) > 0.2) return true;
+function shouldMerge(a: ComponentBox, b: ComponentBox, gap: number): boolean {
+  // 真正重叠（IoU > 0）的框才合并，或者极小间距（gap=0时只合并重叠框）
   const horizontalGap = Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w));
   const verticalGap = Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h));
-  const xOverlap = overlap(a.x, a.x + a.w, b.x, b.x + b.w) / Math.max(1, Math.min(a.w, b.w));
-  const yOverlap = overlap(a.y, a.y + a.h, b.y, b.y + b.h) / Math.max(1, Math.min(a.h, b.h));
-  return horizontalGap <= gap && verticalGap <= gap && (xOverlap > 0.5 || yOverlap > 0.5);
+  if (horizontalGap > gap || verticalGap > gap) return false;
+  // 合并后 bbox 面积不能超过两框内容像素面积之和的 2.5 倍，防止把空白区域包进大框
+  const ux = Math.min(a.x, b.x);
+  const uy = Math.min(a.y, b.y);
+  const unionW = Math.max(a.x + a.w, b.x + b.w) - ux;
+  const unionH = Math.max(a.y + a.h, b.y + b.h) - uy;
+  return unionW * unionH <= (a.area + b.area) * 2.5;
 }
 
 function unionRect(a: ComponentBox, b: ComponentBox): ComponentBox {
@@ -334,4 +378,53 @@ export function downloadText(text: string, filename: string) {
 
 export function safeFileName(name: string): string {
   return name.trim().replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "ui_slice";
+}
+
+export interface ZipSliceEntry {
+  name: string;
+  pngDataUrl: string;
+  width: number;
+  height: number;
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(",");
+  const mime = header.match(/:(.*?);/)?.[1] || "image/png";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+export async function downloadSlicesAsZip(entries: ZipSliceEntry[], zipFileName = "smart-slices.zip") {
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+  const slicesFolder = zip.folder("slices")!;
+  const manifest: { slices: { name: string; file: string; width: number; height: number }[] } = { slices: [] };
+
+  // 文件名去重：自动框与手动框可能重名（如删框后序号冲突），同名会互相覆盖导致切片丢失
+  const usedNames = new Set<string>();
+  for (const entry of entries) {
+    const base = safeFileName(entry.name);
+    let fileName = `${base}.png`;
+    let suffix = 1;
+    while (usedNames.has(fileName)) {
+      fileName = `${base}_${suffix}.png`;
+      suffix += 1;
+    }
+    usedNames.add(fileName);
+    slicesFolder.file(fileName, dataUrlToBlob(entry.pngDataUrl));
+    manifest.slices.push({ name: entry.name, file: `slices/${fileName}`, width: entry.width, height: entry.height });
+  }
+
+  zip.file("metadata.json", JSON.stringify(manifest, null, 2));
+  const blob = await zip.generateAsync({ type: "blob" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = zipFileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

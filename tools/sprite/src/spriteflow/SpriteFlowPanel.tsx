@@ -22,25 +22,27 @@ const SETTINGS_KEY = "layout-editor-spriteflow-api-settings-v1";
 const DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 
 const cardStyle: CSSProperties = {
-  border: "1px solid #343842",
-  borderRadius: 12,
-  background: "linear-gradient(180deg,#202226,#191b1f)",
-  padding: 12,
+  border: "1px solid rgba(139, 166, 217, 0.18)",
+  borderRadius: 16,
+  background: "linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(2, 6, 23, 0.56))",
+  padding: 14,
+  boxShadow: "0 18px 46px rgba(0, 0, 0, 0.2)",
 };
 
 const labelStyle: CSSProperties = {
   fontSize: 12,
-  color: "#aab0bc",
-  marginBottom: 5,
+  color: "#93c5fd",
+  marginBottom: 6,
+  fontWeight: 700,
 };
 
 const inputStyle: CSSProperties = {
   width: "100%",
-  border: "1px solid #3a3f4a",
-  borderRadius: 8,
-  background: "#101215",
-  color: "#e5e7eb",
-  padding: "8px 10px",
+  border: "1px solid rgba(139, 166, 217, 0.24)",
+  borderRadius: 10,
+  background: "rgba(6, 13, 27, 0.75)",
+  color: "#f5f7fb",
+  padding: "10px 12px",
   fontSize: 13,
   boxSizing: "border-box",
 };
@@ -53,30 +55,30 @@ const textareaStyle: CSSProperties = {
 };
 
 const buttonStyle: CSSProperties = {
-  border: "1px solid #3a3f4a",
-  borderRadius: 8,
+  border: "1px solid rgba(139, 166, 217, 0.28)",
+  borderRadius: 10,
   padding: "8px 12px",
-  background: "#242830",
-  color: "#e5e7eb",
+  background: "rgba(41, 58, 94, 0.8)",
+  color: "#e5edf8",
   cursor: "pointer",
   fontSize: 13,
 };
 
 const primaryStyle: CSSProperties = {
   ...buttonStyle,
-  border: "1px solid #2f8bd8",
-  background: "linear-gradient(135deg,#1976bd,#0e639c)",
+  border: "1px solid rgba(96, 165, 250, 0.7)",
+  background: "linear-gradient(135deg, rgba(37, 99, 235, 0.95), rgba(14, 116, 144, 0.9))",
   color: "#ffffff",
 };
 
 type StepKey = "prompt" | "grid" | "model" | "keying" | "result";
 
 const STEP_DEFS: ReadonlyArray<{ key: StepKey; label: string }> = [
-  { key: "prompt", label: "角色提示词" },
-  { key: "grid", label: "网格与动作" },
-  { key: "model", label: "模型与尺寸" },
-  { key: "keying", label: "色键去背景" },
-  { key: "result", label: "结果与预览" },
+  { key: "prompt", label: "描述角色" },
+  { key: "grid", label: "选择动作" },
+  { key: "model", label: "模型设置" },
+  { key: "keying", label: "去背景" },
+  { key: "result", label: "预览导出" },
 ];
 
 const STEP_PROGRESS: Record<StepKey, number> = {
@@ -152,7 +154,7 @@ const DEFAULT_STATE: PersistedState = {
   chatModel: "",
   size: "1024x1024",
   transparentBackground: true,
-  previewBackground: "#0d0f12",
+  previewBackground: "rgba(6, 13, 27, 0.72)",
   globalBackgroundPrompt: "",
   rewrittenPrompt: "",
   rowSliceMode: "content-band",
@@ -240,7 +242,7 @@ function saveSpriteFlowApiSettings(settings: SpriteFlowApiSettings) {
   }
 }
 
-function normalizeCssColor(value: string, fallback = "#0d0f12"): string {
+function normalizeCssColor(value: string, fallback = "rgba(6, 13, 27, 0.72)"): string {
   const trimmed = value.trim();
   return /^#[0-9a-f]{6}$/i.test(trimmed) ? trimmed : fallback;
 }
@@ -417,11 +419,11 @@ function FramePreview({ frames, frameWidth, frameHeight, previewBackground, diag
             width: "100%",
             maxWidth: previewSize,
             height: previewSize,
-            background: previewBackground || "#0d0f12",
-            border: "1px solid #343842",
+            background: previewBackground || "rgba(6, 13, 27, 0.72)",
+            border: "1px solid rgba(139, 166, 217, 0.18)",
             borderRadius: 10,
             backgroundImage:
-              "linear-gradient(45deg,#252932 25%,transparent 25%),linear-gradient(-45deg,#252932 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#252932 75%),linear-gradient(-45deg,transparent 75%,#252932 75%)",
+              "linear-gradient(45deg,rgba(96,165,250,0.1) 25%,transparent 25%),linear-gradient(-45deg,rgba(96,165,250,0.1) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,rgba(96,165,250,0.1) 75%),linear-gradient(-45deg,transparent 75%,rgba(96,165,250,0.1) 75%)",
             backgroundSize: "12px 12px",
             backgroundPosition: "0 0,0 6px,6px -6px,-6px 0",
             display: "grid",
@@ -486,10 +488,10 @@ function FramePreview({ frames, frameWidth, frameHeight, previewBackground, diag
                 setIndex(i);
               }}
               style={{
-                border: i === index ? "2px solid #2f8bd8" : bad ? "1px solid #f59e0b" : "1px solid #343842",
+                border: i === index ? "2px solid #60a5fa" : bad ? "1px solid #f59e0b" : "1px solid rgba(139, 166, 217, 0.18)",
                 borderRadius: 6,
                 padding: 0,
-                background: "#0d0f12",
+                background: "rgba(6, 13, 27, 0.72)",
                 cursor: "pointer",
                 aspectRatio: "1 / 1",
                 overflow: "hidden",
@@ -508,7 +510,7 @@ function FramePreview({ frames, frameWidth, frameHeight, previewBackground, diag
 }
 
 function DetectorPanel({ diagnostic }: { diagnostic: SheetDiagnostic | null }) {
-  if (!diagnostic) return <div style={{ fontSize: 12, color: "#aab0bc" }}>生成或重新切片后，会在这里显示帧检测结果。</div>;
+  if (!diagnostic) return <div style={{ fontSize: 12, color: "#94a3b8" }}>生成或重新切片后，会在这里显示帧检测结果。</div>;
   const flagged = diagnostic.frames.filter((frame) => frame.warnings.length > 0).length;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12 }} data-testid="spriteflow-detector">
@@ -519,12 +521,12 @@ function DetectorPanel({ diagnostic }: { diagnostic: SheetDiagnostic | null }) {
       </div>
       {diagnostic.contentBand ? <div>检测到内容行：y {diagnostic.contentBand.y}，高 {diagnostic.contentBand.h}</div> : <div>未检测到内容行。</div>}
       {diagnostic.warnings.length > 0 && <div style={{ color: "#fbbf24" }}>整图警告：{diagnostic.warnings.join("，")}</div>}
-      <div style={{ maxHeight: 150, overflow: "auto", border: "1px solid #343842", borderRadius: 8 }}>
+      <div style={{ maxHeight: 150, overflow: "auto", border: "1px solid rgba(139, 166, 217, 0.18)", borderRadius: 8 }}>
         {diagnostic.frames.map((frame) => (
-          <div key={frame.index} style={{ display: "grid", gridTemplateColumns: "44px 74px 1fr", gap: 8, padding: "5px 8px", borderBottom: "1px solid #2b2f37" }}>
+          <div key={frame.index} style={{ display: "grid", gridTemplateColumns: "44px 74px 1fr", gap: 8, padding: "5px 8px", borderBottom: "1px solid rgba(139, 166, 217, 0.12)" }}>
             <span>#{frame.index + 1}</span>
             <span>{(frame.sameCellScore * 100).toFixed(0)}%</span>
-            <span style={{ color: frame.warnings.length ? "#fbbf24" : "#9ca3af" }}>{frame.warnings.length ? frame.warnings.join("，") : "正常"}</span>
+            <span style={{ color: frame.warnings.length ? "#fbbf24" : "#94a3b8" }}>{frame.warnings.length ? frame.warnings.join("，") : "正常"}</span>
           </div>
         ))}
       </div>
@@ -546,11 +548,13 @@ export function SpriteFlowPanel() {
   const [allModelList, setAllModelList] = useState<string[]>([]);
   const [manualImageModel, setManualImageModel] = useState(false);
   const [manualChatModel, setManualChatModel] = useState(false);
+  const [showAllImageModels, setShowAllImageModels] = useState(false);
   const [modelListBusy, setModelListBusy] = useState(false);
   const [modelListMsg, setModelListMsg] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mattingOpen, setMattingOpen] = useState(false);
   const [showOriginalSheet, setShowOriginalSheet] = useState(false);
+  const [activeStep, setActiveStep] = useState<StepKey>("prompt");
   const [apiSettings, setApiSettings] = useState<SpriteFlowApiSettings>(() => loadSpriteFlowApiSettings());
   const aiSettings = useMemo(() => getDesktopSettingsSnapshot().ai, []);
   const effectiveOpenAiConfig = useMemo(() => {
@@ -572,7 +576,7 @@ export function SpriteFlowPanel() {
   }, [aiSettings.apiKey, aiSettings.baseUrl, aiSettings.timeoutMs, apiSettings.openai.apiKey, apiSettings.openai.baseUrl, apiSettings.openai.chatModel, apiSettings.openai.imageModel, apiSettings.openai.timeoutMs, state.chatModel, state.imageModel]);
   const gridConfig = parseGridConfig(state.gridConfigStr) || GRID_CONFIGS[0];
   const metrics = getGridMetrics(gridConfig);
-  const showImageModelInput = modelList.length === 0 || manualImageModel || !modelList.includes(state.imageModel);
+  const showImageModelInput = (showAllImageModels ? allModelList : modelList).length === 0 || manualImageModel || !(showAllImageModels ? allModelList : modelList).includes(state.imageModel);
   const showChatModelInput = allModelList.length === 0 || manualChatModel || Boolean(state.chatModel && !allModelList.includes(state.chatModel));
   const previewBackground = normalizeCssColor(state.previewBackground);
 
@@ -748,12 +752,17 @@ export function SpriteFlowPanel() {
         return { ...s, imageModel: preferred };
       });
       if (selected) setManualImageModel(false);
+      const totalCount = allModels.length;
+      const recognizedCount = finalList.length;
+      const unrecognizedCount = totalCount - recognizedCount;
       setModelListMsg(
         finalList.length
           ? selected
-            ? `已加载 ${finalList.length} 个模型，并自动选择：${selected}`
-            : `已加载 ${finalList.length} 个模型。`
-          : "网关没有返回模型。",
+            ? `已加载 ${recognizedCount}/${totalCount} 个图像模型，并自动选择：${selected}${unrecognizedCount > 0 ? `（另有 ${unrecognizedCount} 个未识别为图像模型，可勾选"显示全部"挑选）` : ""}`
+            : `已加载 ${recognizedCount}/${totalCount} 个图像模型。${unrecognizedCount > 0 ? `（另有 ${unrecognizedCount} 个未识别为图像模型，可勾选"显示全部"挑选）` : ""}`
+          : totalCount > 0
+            ? `网关返回 ${totalCount} 个模型，但都未被识别为图像模型。可勾选"显示全部"手动挑选。`
+            : "网关没有返回模型。",
       );
     } catch (e) {
       setModelListMsg((e as Error).message);
@@ -803,13 +812,13 @@ export function SpriteFlowPanel() {
     URL.revokeObjectURL(url);
   }, [activeFrames, diagnostic, result]);
 
-  const activeStep = computeActiveStep({
+  const suggestedStep = computeActiveStep({
     hasResult: Boolean(result),
     hasKeyedSheet: Boolean(keyedSheet),
     hasImageModel: Boolean(state.imageModel.trim()),
     hasActions: state.selectedActionIds.length > 0,
   });
-  const progressPercent = STEP_PROGRESS[activeStep];
+  const progressPercent = STEP_PROGRESS[suggestedStep];
 
   return (
     <div className="workflow-shell" data-testid="spriteflow-panel">
@@ -818,14 +827,14 @@ export function SpriteFlowPanel() {
           <div style={{ ...cardStyle, width: "min(720px, 94vw)", maxHeight: "88vh", overflow: "auto", boxShadow: "0 22px 80px rgba(0,0,0,0.45)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
               <strong>SpriteFlow API 设置</strong>
-              <span style={{ fontSize: 11, color: "#9ca3af" }}>OpenAI-compatible 当前可直接生成；falsprite/fal.ai 配置已保存，后续可接 fal 队列生成。</span>
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>OpenAI-compatible 当前可直接生成；falsprite/fal.ai 配置已保存，后续可接 fal 队列生成。</span>
               <button style={{ ...buttonStyle, marginLeft: "auto", padding: "5px 10px" }} onClick={() => setSettingsOpen(false)}>关闭</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <section style={cardStyle}>
                 <div style={labelStyle}>当前 API（OpenAI-compatible）</div>
                 <input style={inputStyle} value={apiSettings.openai.baseUrl} onChange={(e) => setApiSettings((s) => ({ ...s, openai: { ...s.openai, baseUrl: e.target.value } }))} placeholder={aiSettings.baseUrl || "https://api.openai.com/v1"} />
-                <div style={{ fontSize: 10, color: "#8b93a1", marginTop: 5 }}>
+                <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 5 }}>
                   本地 SpriteFlow API 优先；留空才使用全局 AI Provider。
                 </div>
                 <input style={{ ...inputStyle, marginTop: 8 }} value={apiSettings.openai.apiKey} onChange={(e) => setApiSettings((s) => ({ ...s, openai: { ...s.openai, apiKey: e.target.value } }))} placeholder="API Key（留空则使用全局设置）" type="password" />
@@ -856,8 +865,8 @@ export function SpriteFlowPanel() {
       ) : null}
       <section className="workflow-header panel">
         <div>
-          <h3>SpriteFlow 精灵生成</h3>
-          <p>从提示词到精灵图的完整流水线：角色描述、网格切片、模型与色键，一页搞定。</p>
+          <h3>SpriteFlow 角色序列帧</h3>
+          <p>通过提示词生成角色 sprite sheet，再做切帧、去背景、预览与导出。</p>
         </div>
         <div className="workflow-progress-card">
           <div className="workflow-progress-meta">
@@ -874,12 +883,35 @@ export function SpriteFlowPanel() {
 
       <nav className="workflow-stepper" aria-label="SpriteFlow 步骤">
         {STEP_DEFS.map((step, index) => (
-          <a key={step.key} className={step.key === activeStep ? "active" : ""} href={`#spriteflow-step-${step.key}`}>
+          <a
+            key={step.key}
+            className={`${step.key === activeStep ? "active" : ""} ${step.key === suggestedStep ? "suggested" : ""}`}
+            href={`#spriteflow-step-${step.key}`}
+            onClick={(event) => {
+              event.preventDefault();
+              setActiveStep(step.key);
+            }}
+          >
             <span>{index + 1}</span>
             {step.label}
           </a>
         ))}
       </nav>
+
+      <section className="tool-boundary panel">
+        <div>
+          <strong>适合</strong>
+          <span>从文字生成角色动作 sheet、批量动作方向、单帧重生成。</span>
+        </div>
+        <div>
+          <strong>不适合</strong>
+          <span>编辑现有 PSD 骨架、精细 UI 切片、视频批量去底。</span>
+        </div>
+        <div>
+          <strong>下一步</strong>
+          <span>需要可编辑骨骼请回到“骨骼动画”；已有视频素材去“制作流水线”。</span>
+        </div>
+      </section>
 
       <div className="spriteflow-toolbar">
         <button style={primaryStyle} onClick={onGenerate} disabled={busy} data-testid="spriteflow-generate-button">
@@ -897,8 +929,9 @@ export function SpriteFlowPanel() {
         </section>
       ) : null}
 
-      <div className="spriteflow-grid">
-          <div className="workflow-column" id="spriteflow-step-prompt">
+      <div className="spriteflow-grid spriteflow-stage-host">
+          <div className="workflow-column" id="spriteflow-step-prompt" style={{ display: activeStep === "result" ? "none" : undefined }}>
+            {activeStep === "prompt" && (
             <section style={cardStyle}>
               <div style={labelStyle}>角色描述</div>
               <textarea
@@ -908,53 +941,59 @@ export function SpriteFlowPanel() {
                 onChange={(e) => setState((s) => ({ ...s, prompt: e.target.value }))}
               />
             </section>
+            )}
 
-            <section style={cardStyle} id="spriteflow-step-grid">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <div style={labelStyle}>网格布局</div>
-                  <select style={inputStyle} value={state.gridConfigStr} onChange={(e) => setState((s) => ({ ...s, gridConfigStr: e.target.value }))}>
-                    <optgroup label="推荐单行布局">
-                      {GRID_CONFIGS.filter((c) => c.layout === "row").map((config) => <option key={serializeGridConfig(config)} value={serializeGridConfig(config)}>{config.label}</option>)}
-                    </optgroup>
-                    <optgroup label="方形网格">
-                      {GRID_CONFIGS.filter((c) => c.layout === "square").map((config) => <option key={serializeGridConfig(config)} value={serializeGridConfig(config)}>{config.label}</option>)}
-                    </optgroup>
-                  </select>
-                  <div style={{ fontSize: 11, color: "#8b93a1", marginTop: 5 }}>
-                    当前：{metrics.label}，{metrics.frameCount} 帧，{gridConfig.layout === "square" ? "方形网格模式（按整图等分切片）" : "单行动画条模式"}
-                  </div>
-                  <div style={{ marginTop: 8 }}>
-                    <div style={labelStyle}>切片方式</div>
-                    {gridConfig.layout === "square" ? (
-                      <div style={{ fontSize: 11, color: "#8b93a1" }}>方形网格固定使用整图等分切片，避免上下内容检测导致高度漂移。</div>
-                    ) : (
-                      <select style={inputStyle} value={state.rowSliceMode} onChange={(e) => setState((s) => ({ ...s, rowSliceMode: e.target.value as PersistedState["rowSliceMode"] }))}>
-                        <option value="content-band">智能裁内容行（去掉上下空白）</option>
-                        <option value="full-grid">整图等分（高度最稳定）</option>
+            {activeStep === "grid" && (
+              <>
+                <section style={cardStyle} id="spriteflow-step-grid">
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <div style={labelStyle}>网格布局</div>
+                      <select style={inputStyle} value={state.gridConfigStr} onChange={(e) => setState((s) => ({ ...s, gridConfigStr: e.target.value }))}>
+                        <optgroup label="推荐单行布局">
+                          {GRID_CONFIGS.filter((c) => c.layout === "row").map((config) => <option key={serializeGridConfig(config)} value={serializeGridConfig(config)}>{config.label}</option>)}
+                        </optgroup>
+                        <optgroup label="方形网格">
+                          {GRID_CONFIGS.filter((c) => c.layout === "square").map((config) => <option key={serializeGridConfig(config)} value={serializeGridConfig(config)}>{config.label}</option>)}
+                        </optgroup>
                       </select>
-                    )}
+                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 5 }}>
+                        当前：{metrics.label}，{metrics.frameCount} 帧，{gridConfig.layout === "square" ? "方形网格模式（按整图等分切片）" : "单行动画条模式"}
+                      </div>
+                      <div style={{ marginTop: 8 }}>
+                        <div style={labelStyle}>切片方式</div>
+                        {gridConfig.layout === "square" ? (
+                          <div style={{ fontSize: 11, color: "#94a3b8" }}>方形网格固定使用整图等分切片，避免上下内容检测导致高度漂移。</div>
+                        ) : (
+                          <select style={inputStyle} value={state.rowSliceMode} onChange={(e) => setState((s) => ({ ...s, rowSliceMode: e.target.value as PersistedState["rowSliceMode"] }))}>
+                            <option value="content-band">智能裁内容行（去掉上下空白）</option>
+                            <option value="full-grid">整图等分（高度最稳定）</option>
+                          </select>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={labelStyle}>角色朝向</div>
+                      <select style={inputStyle} value={state.direction} onChange={(e) => setState((s) => ({ ...s, direction: e.target.value as SpriteDirection }))}>
+                        {SPRITE_DIRECTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                      </select>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <div style={labelStyle}>角色朝向</div>
-                  <select style={inputStyle} value={state.direction} onChange={(e) => setState((s) => ({ ...s, direction: e.target.value as SpriteDirection }))}>
-                    {SPRITE_DIRECTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                  </select>
-                </div>
-              </div>
-            </section>
+                </section>
 
-            <section style={cardStyle}>
-              <div style={labelStyle}>动画动作</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {DEFAULT_ACTIONS.map((action) => {
-                  const active = state.selectedActionIds.includes(action.id);
-                  return <button key={action.id} style={{ ...buttonStyle, padding: "5px 9px", borderColor: active ? "#2f8bd8" : "#3a3f4a", background: active ? "#0e639c" : "#242830" }} onClick={() => toggleAction(action.id)}>{action.label}</button>;
-                })}
-              </div>
-            </section>
+                <section style={cardStyle}>
+                  <div style={labelStyle}>动画动作</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {DEFAULT_ACTIONS.map((action) => {
+                      const active = state.selectedActionIds.includes(action.id);
+                      return <button key={action.id} style={{ ...buttonStyle, padding: "5px 9px", borderColor: active ? "#60a5fa" : "rgba(139, 166, 217, 0.24)", background: active ? "rgba(37, 99, 235, 0.72)" : "rgba(15, 23, 42, 0.68)" }} onClick={() => toggleAction(action.id)}>{action.label}</button>;
+                    })}
+                  </div>
+                </section>
+              </>
+            )}
 
+            {activeStep === "prompt" && (
             <section style={cardStyle}>
               <div style={labelStyle}>参考图（用于图像编辑）</div>
               <input
@@ -968,49 +1007,62 @@ export function SpriteFlowPanel() {
               />
               {referenceImage ? (
                 <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
-                  <img src={referenceImage} alt="参考图" style={{ width: 58, height: 58, objectFit: "contain", border: "1px solid #343842", borderRadius: 8, background: "#0d0f12" }} />
+                  <img src={referenceImage} alt="参考图" style={{ width: 58, height: 58, objectFit: "contain", border: "1px solid rgba(139, 166, 217, 0.18)", borderRadius: 8, background: "rgba(6, 13, 27, 0.72)" }} />
                   <button style={buttonStyle} onClick={() => setReferenceImage(null)}>清除参考图</button>
                 </div>
-              ) : <div style={{ fontSize: 11, color: "#8b93a1", marginTop: 6 }}>上传后会使用 Images Edits multipart 接口，把这张图作为参考。</div>}
+              ) : <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>上传后会使用 Images Edits multipart 接口，把这张图作为参考。</div>}
             </section>
+            )}
 
+            {activeStep === "model" && (
             <section style={cardStyle} id="spriteflow-step-model">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <details className="collapsible-card" open={activeStep === "model"}>
+                <summary>模型、尺寸与提示词重写</summary>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
                 <div>
                   <div style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}>
                     <span>图像模型</span>
                     <button style={{ ...buttonStyle, padding: "2px 7px", fontSize: 11 }} onClick={onFetchModels} disabled={modelListBusy}>{modelListBusy ? "拉取中" : "拉取"}</button>
+                    {allModelList.length > 0 ? (
+                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8", cursor: "pointer" }}>
+                        <input type="checkbox" checked={showAllImageModels} onChange={(e) => setShowAllImageModels(e.target.checked)} />
+                        显示全部 ({allModelList.length})
+                      </label>
+                    ) : null}
                   </div>
-                  {modelList.length > 0 ? (
-                    <select
-                      style={inputStyle}
-                      value={modelList.includes(state.imageModel) ? state.imageModel : "__custom__"}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (value === "__custom__") {
-                          setManualImageModel(true);
-                          return;
-                        }
-                        setManualImageModel(false);
-                        setState((s) => ({ ...s, imageModel: value }));
-                      }}
-                    >
-                      {!modelList.includes(state.imageModel) && <option value="__custom__">当前自定义：{state.imageModel || "未填写"}</option>}
-                      {modelList.map((id) => <option key={id} value={id}>{id}</option>)}
-                      {modelList.includes(state.imageModel) ? <option value="__custom__">手动填写...</option> : null}
-                    </select>
-                  ) : null}
+                  {(() => {
+                    const visibleList = showAllImageModels ? allModelList : modelList;
+                    return visibleList.length > 0 ? (
+                      <select
+                        style={inputStyle}
+                        value={visibleList.includes(state.imageModel) ? state.imageModel : "__custom__"}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === "__custom__") {
+                            setManualImageModel(true);
+                            return;
+                          }
+                          setManualImageModel(false);
+                          setState((s) => ({ ...s, imageModel: value }));
+                        }}
+                      >
+                        {!visibleList.includes(state.imageModel) && <option value="__custom__">当前自定义：{state.imageModel || "未填写"}</option>}
+                        {visibleList.map((id) => <option key={id} value={id}>{id}</option>)}
+                        {visibleList.includes(state.imageModel) ? <option value="__custom__">手动填写...</option> : null}
+                      </select>
+                    ) : null;
+                  })()}
                   {showImageModelInput ? (
                     <input
-                      style={{ ...inputStyle, marginTop: modelList.length > 0 ? 6 : 0 }}
+                      style={{ ...inputStyle, marginTop: (showAllImageModels ? allModelList.length : modelList.length) > 0 ? 6 : 0 }}
                       value={state.imageModel}
                       onChange={(e) => setState((s) => ({ ...s, imageModel: e.target.value }))}
                       placeholder="可手动填写模型名"
                       list="spriteflow-image-models"
                     />
                   ) : null}
-                  <datalist id="spriteflow-image-models">{modelList.map((id) => <option key={id} value={id} />)}</datalist>
-                  {modelListMsg ? <div style={{ fontSize: 11, color: "#aab0bc", marginTop: 4 }}>{modelListMsg}</div> : null}
+                  <datalist id="spriteflow-image-models">{(showAllImageModels ? allModelList : modelList).map((id) => <option key={id} value={id} />)}</datalist>
+                  {modelListMsg ? <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{modelListMsg}</div> : null}
                 </div>
                 <div>
                   <div style={labelStyle}>提示词重写模型</div>
@@ -1082,8 +1134,8 @@ export function SpriteFlowPanel() {
                 <div>
                   <div style={labelStyle}>预览背景色</div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <input type="color" value={previewBackground} onChange={(e) => setState((s) => ({ ...s, previewBackground: e.target.value }))} style={{ width: 42, height: 34, border: "1px solid #3a3f4a", borderRadius: 8, background: "#101215" }} />
-                    <input style={inputStyle} value={state.previewBackground} onChange={(e) => setState((s) => ({ ...s, previewBackground: e.target.value }))} placeholder="#0d0f12" />
+                    <input type="color" value={previewBackground} onChange={(e) => setState((s) => ({ ...s, previewBackground: e.target.value }))} style={{ width: 42, height: 34, border: "1px solid rgba(139, 166, 217, 0.24)", borderRadius: 8, background: "rgba(6, 13, 27, 0.72)" }} />
+                    <input style={inputStyle} value={state.previewBackground} onChange={(e) => setState((s) => ({ ...s, previewBackground: e.target.value }))} placeholder="rgba(6, 13, 27, 0.72)" />
                   </div>
                 </div>
                 <div>
@@ -1096,14 +1148,17 @@ export function SpriteFlowPanel() {
                   />
                 </div>
               </div>
+              </details>
             </section>
+            )}
 
+            {activeStep === "keying" && (
             <section style={cardStyle} id="spriteflow-step-keying">
               <div style={labelStyle}>背景色键</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {KEYING_COLORS.map((kc) => {
                   const active = state.keyingColorId === kc.id;
-                  return <button key={kc.id} style={{ ...buttonStyle, padding: "5px 9px", borderColor: active ? "#2f8bd8" : "#3a3f4a", background: active ? "#0e639c" : "#242830" }} onClick={() => setState((s) => ({ ...s, keyingColorId: kc.id }))}>{kc.label}</button>;
+                  return <button key={kc.id} style={{ ...buttonStyle, padding: "5px 9px", borderColor: active ? "#60a5fa" : "rgba(139, 166, 217, 0.24)", background: active ? "rgba(37, 99, 235, 0.72)" : "rgba(15, 23, 42, 0.68)" }} onClick={() => setState((s) => ({ ...s, keyingColorId: kc.id }))}>{kc.label}</button>;
                 })}
               </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginTop: 8 }}>
@@ -1114,9 +1169,9 @@ export function SpriteFlowPanel() {
                 <button style={buttonStyle} onClick={() => result && runKeying(result.sheetDataUrl, result.metadata.gridConfig)} disabled={!result || busy}>色键去背景</button>
               </div>
               <details open={state.showAdvanced} style={{ marginTop: 8 }}>
-                <summary style={{ cursor: "pointer", fontSize: 12, color: "#aab0bc" }} onClick={(e) => { e.preventDefault(); setState((s) => ({ ...s, showAdvanced: !s.showAdvanced })); }}>高级色键选项</summary>
+                <summary style={{ cursor: "pointer", fontSize: 12, color: "#94a3b8" }} onClick={(e) => { e.preventDefault(); setState((s) => ({ ...s, showAdvanced: !s.showAdvanced })); }}>高级色键选项</summary>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-                  <span style={{ fontSize: 11, color: "#aab0bc" }}>容差</span>
+                  <span style={{ fontSize: 11, color: "#94a3b8" }}>容差</span>
                   <input type="range" min="10" max="150" value={state.keyingTolerance} onChange={(e) => setState((s) => ({ ...s, keyingTolerance: Number(e.target.value) }))} style={{ flex: 1 }} />
                   <span style={{ fontSize: 11, color: "#60a5fa", minWidth: 30 }}>{state.keyingTolerance}</span>
                 </div>
@@ -1125,12 +1180,12 @@ export function SpriteFlowPanel() {
                   边缘混合（减少硬边）
                 </label>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-                  <span style={{ fontSize: 11, color: "#aab0bc" }}>混合区</span>
+                  <span style={{ fontSize: 11, color: "#94a3b8" }}>混合区</span>
                   <input type="range" min="10" max="90" value={Math.round(state.keyingBlendZoneRatio * 100)} onChange={(e) => setState((s) => ({ ...s, keyingBlendZoneRatio: Number(e.target.value) / 100 }))} style={{ flex: 1 }} />
                   <span style={{ fontSize: 11, color: "#60a5fa", minWidth: 34 }}>{Math.round(state.keyingBlendZoneRatio * 100)}%</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-                  <span style={{ fontSize: 11, color: "#aab0bc" }}>Alpha 截断</span>
+                  <span style={{ fontSize: 11, color: "#94a3b8" }}>Alpha 截断</span>
                   <input type="range" min="0" max="80" value={state.keyingAlphaCutoff} onChange={(e) => setState((s) => ({ ...s, keyingAlphaCutoff: Number(e.target.value) }))} style={{ flex: 1 }} />
                   <span style={{ fontSize: 11, color: "#60a5fa", minWidth: 30 }}>{state.keyingAlphaCutoff}</span>
                 </div>
@@ -1139,14 +1194,16 @@ export function SpriteFlowPanel() {
                   去除边缘溢色（绿/蓝边）
                 </label>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-                  <span style={{ fontSize: 11, color: "#aab0bc" }}>溢色强度</span>
+                  <span style={{ fontSize: 11, color: "#94a3b8" }}>溢色强度</span>
                   <input type="range" min="0" max="100" value={Math.round(state.keyingSpillStrength * 100)} onChange={(e) => setState((s) => ({ ...s, keyingSpillStrength: Number(e.target.value) / 100 }))} style={{ flex: 1 }} />
                   <span style={{ fontSize: 11, color: "#60a5fa", minWidth: 34 }}>{Math.round(state.keyingSpillStrength * 100)}%</span>
                 </div>
               </details>
             </section>
+            )}
           </div>
 
+          {activeStep === "result" && (
           <div className="workflow-column" id="spriteflow-step-result">
             <section style={cardStyle}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
@@ -1156,8 +1213,8 @@ export function SpriteFlowPanel() {
                 ) : <span style={{ marginLeft: "auto" }} />}
                 {activeSheet ? <button style={{ ...buttonStyle, padding: "4px 8px", fontSize: 12 }} onClick={() => setMattingOpen(true)}>抠图修正</button> : null}
               </div>
-              <div style={{ minHeight: 180, border: "1px solid #343842", borderRadius: 10, background: previewBackground, display: "grid", placeItems: "center", overflow: "hidden", padding: 8 }} data-testid="spriteflow-sheet-preview">
-                {previewSheet ? <img src={previewSheet} alt="精灵图" style={{ maxWidth: "100%", maxHeight: 260, objectFit: "contain", imageRendering: "pixelated" }} /> : <span style={{ fontSize: 12, color: "#7d8491" }}>还没有生成结果</span>}
+              <div style={{ minHeight: 180, border: "1px solid rgba(139, 166, 217, 0.18)", borderRadius: 10, background: previewBackground, display: "grid", placeItems: "center", overflow: "hidden", padding: 8 }} data-testid="spriteflow-sheet-preview">
+                {previewSheet ? <img src={previewSheet} alt="精灵图" style={{ maxWidth: "100%", maxHeight: 260, objectFit: "contain", imageRendering: "pixelated" }} /> : <span style={{ fontSize: 12, color: "#64748b" }}>还没有生成结果</span>}
               </div>
               {result?.warnings.length ? <div style={{ color: "#fbbf24", fontSize: 12, marginTop: 8 }}>{result.warnings.join(" | ")}</div> : null}
             </section>
@@ -1183,18 +1240,26 @@ export function SpriteFlowPanel() {
 
             {result ? (
               <section style={cardStyle}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <div style={labelStyle}>下一步</div>
+                <div className="tool-checklist spriteflow-next-steps">
+                  <span className="tool-check-item ok">整图 PNG：下载完整 sprite sheet。</span>
+                  <span className={`tool-check-item ${activeFrames.length > 0 ? "ok" : ""}`}>切帧：下载全部帧或在播放预览里单帧重生成。</span>
+                  <span className="tool-check-item ok">JSON：导出网格、帧尺寸、提示词和检测信息。</span>
+                  <span className="tool-check-item">需要可编辑骨架：转到“骨骼动画”重新绑定。</span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
                   <button style={buttonStyle} onClick={() => downloadDataUrl(activeSheet, `spriteflow-${result.metadata.grid}.png`)}>下载整图 PNG</button>
                   <button style={buttonStyle} onClick={() => activeFrames.forEach((frame, idx) => downloadDataUrl(frame, `spriteflow-${result.metadata.grid}-frame-${String(idx + 1).padStart(2, "0")}.png`))}>下载全部帧</button>
                   <button style={buttonStyle} onClick={onDownloadJson}>下载 JSON</button>
                 </div>
-                <details style={{ marginTop: 10 }}>
-                  <summary style={{ cursor: "pointer", fontSize: 12, color: "#aab0bc" }}>查看最终提示词</summary>
-                  <pre style={{ marginTop: 8, background: "#0d0f12", border: "1px solid #343842", borderRadius: 8, padding: 10, fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 220, overflow: "auto" }}>{result.finalPrompt}</pre>
+                <details className="collapsible-card" style={{ marginTop: 10 }}>
+                  <summary>查看最终提示词</summary>
+                  <pre style={{ marginTop: 8, background: "rgba(6, 13, 27, 0.72)", border: "1px solid rgba(139, 166, 217, 0.18)", borderRadius: 8, padding: 10, fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 220, overflow: "auto" }}>{result.finalPrompt}</pre>
                 </details>
               </section>
             ) : null}
           </div>
+          )}
         </div>
     </div>
   );

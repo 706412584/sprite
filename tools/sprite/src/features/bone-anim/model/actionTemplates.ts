@@ -5,6 +5,9 @@
 // - 找不到对应骨骼时静默跳过，确保任意模板与任意骨架都能跑（缺胳膊就只动剩下的）。
 
 import { Animation, BoneTimeline, Keyframe, Skeleton, findBoneByName, makeId } from "./skeletonModel";
+import { TEMPLATE_PRESET_POSE } from "./templatePoseMap";
+import { CharacterPose } from "./poseDetector";
+import { projectAnimationToPose } from "./poseProjection";
 
 export interface ActionTemplateParam {
   key: string;
@@ -13,6 +16,7 @@ export interface ActionTemplateParam {
   max: number;
   step: number;
   default: number;
+  group?: "basic" | "guard" | "advanced";
 }
 
 export interface ActionTemplate {
@@ -63,6 +67,76 @@ function sampleSinKeyframes(
   return out;
 }
 
+function pushRotateSamples(
+  anim: Animation,
+  skeleton: Skeleton,
+  boneName: string,
+  count: number,
+  durationSec: number,
+  amp: number,
+  phase = 0,
+) {
+  const bone = findBoneByName(skeleton, boneName);
+  if (!bone) return;
+  const tl = ensureTimeline(anim, bone.id);
+  const samples = sampleSinKeyframes(count, durationSec, (t) => Math.sin((t / durationSec) * Math.PI * 2 + phase) * amp);
+  for (const s of samples) {
+    pushKey(tl, { time: s.time, channel: "rotate", values: [s.value], easing: "linear" });
+  }
+}
+
+function pushTranslateSamples(
+  anim: Animation,
+  skeleton: Skeleton,
+  boneName: string,
+  count: number,
+  durationSec: number,
+  xAmp: number,
+  yAmp: number,
+  phase = 0,
+) {
+  const bone = findBoneByName(skeleton, boneName);
+  if (!bone) return;
+  const tl = ensureTimeline(anim, bone.id);
+  const samples = sampleSinKeyframes(count, durationSec, (t) => Math.sin((t / durationSec) * Math.PI * 2 + phase));
+  for (const s of samples) {
+    pushKey(tl, { time: s.time, channel: "translate", values: [s.value * xAmp, s.value * yAmp], easing: "linear" });
+  }
+}
+
+function pushRotateKeys(anim: Animation, skeleton: Skeleton, boneName: string, keys: Array<[number, number, Keyframe["easing"]]>) {
+  const bone = findBoneByName(skeleton, boneName);
+  if (!bone) return;
+  const tl = ensureTimeline(anim, bone.id);
+  for (const [time, value, easing] of keys) {
+    pushKey(tl, { time, channel: "rotate", values: [value], easing });
+  }
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function estimateShoulderGuard(skeleton: Skeleton): number {
+  const scores = ["upperArmL", "upperArmR"].map((name) => {
+    const bone = findBoneByName(skeleton, name);
+    if (!bone) return 0;
+    const slot = skeleton.slots.find((s) => s.boneId === bone.id && s.attachmentId);
+    const attachment = slot?.attachmentId ? skeleton.attachments.find((a) => a.id === slot.attachmentId) : undefined;
+    if (!slot || !attachment || !bone.length) return 0;
+
+    const shoulderOffset = slot.setupOffset ? Math.hypot(slot.setupOffset.x, slot.setupOffset.y) : attachment.height * attachment.pivot.y;
+    const widthRatio = attachment.width / Math.max(1, bone.length);
+    const pivotRisk = attachment.pivot.y < 0.18 ? 0.35 : attachment.pivot.y < 0.28 ? 0.18 : 0;
+    const offsetRisk = shoulderOffset < bone.length * 0.3 ? 0.3 : shoulderOffset < bone.length * 0.45 ? 0.15 : 0;
+    const slimRisk = widthRatio < 0.75 ? 0.2 : widthRatio < 1 ? 0.1 : 0;
+
+    return Math.min(0.65, pivotRisk + offsetRisk + slimRisk);
+  });
+
+  return Math.max(...scores, 0);
+}
+
 // ---------- idle 呼吸 ----------
 
 const idleTemplate: ActionTemplate = {
@@ -104,6 +178,14 @@ const idleTemplate: ActionTemplate = {
       }
     }
 
+    pushRotateSamples(anim, skeleton, "hairFront", sampleCount, duration, params.headRot * 1.4, Math.PI * 0.7);
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.headRot * 1.1, Math.PI * 0.95);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.torsoRot * 2.2, Math.PI * 1.1);
+    pushRotateSamples(anim, skeleton, "skirt", sampleCount, duration, params.torsoRot * 1.8, Math.PI * 0.9);
+    pushTranslateSamples(anim, skeleton, "eyeL", sampleCount, duration, 0.7, 0, Math.PI / 3);
+    pushTranslateSamples(anim, skeleton, "eyeR", sampleCount, duration, 0.7, 0, Math.PI / 3);
+    pushTranslateSamples(anim, skeleton, "mouth", sampleCount, duration, 0, 0.8, Math.PI);
+
     return anim;
   },
 };
@@ -118,7 +200,11 @@ const walkTemplate: ActionTemplate = {
   defaultLoop: true,
   params: [
     { key: "legSwing", label: "摆腿幅度 (度)", min: 5, max: 60, step: 1, default: 25 },
-    { key: "armSwing", label: "摆臂幅度 (度)", min: 5, max: 60, step: 1, default: 30 },
+    { key: "armSwing", label: "摆臂幅度 (度)", min: 5, max: 60, step: 1, default: 18 },
+    { key: "shoulderSwingRatio", label: "肩部摆臂比例", min: 0, max: 0.6, step: 0.01, default: 0.22, group: "guard" },
+    { key: "forearmSwingRatio", label: "前臂接力比例", min: 0, max: 1.2, step: 0.01, default: 0.82, group: "guard" },
+    { key: "handSwingRatio", label: "手部接力比例", min: 0, max: 1.2, step: 0.01, default: 0.7, group: "guard" },
+    { key: "armCrossGuard", label: "交叉保护", min: 0, max: 1, step: 0.01, default: 0.55, group: "guard" },
     { key: "bodyBob", label: "身体上下", min: 0, max: 10, step: 0.5, default: 3 },
   ],
   generate: (skeleton, params) => {
@@ -127,23 +213,32 @@ const walkTemplate: ActionTemplate = {
     const sampleCount = 16;
 
     const swingPair = (boneName: string, phase: number, amp: number) => {
-      const bone = findBoneByName(skeleton, boneName);
-      if (!bone) return;
-      const tl = ensureTimeline(anim, bone.id);
-      const samples = sampleSinKeyframes(
-        sampleCount,
-        duration,
-        (t) => Math.sin((t / duration) * Math.PI * 2 + phase) * amp,
-      );
-      for (const s of samples) {
-        pushKey(tl, { time: s.time, channel: "rotate", values: [s.value], easing: "linear" });
-      }
+      pushRotateSamples(anim, skeleton, boneName, sampleCount, duration, amp, phase);
     };
 
     swingPair("thighL", 0, params.legSwing);
     swingPair("thighR", Math.PI, params.legSwing);
-    swingPair("upperArmL", Math.PI, params.armSwing);
-    swingPair("upperArmR", 0, params.armSwing);
+    swingPair("shinL", Math.PI * 0.35, params.legSwing * 0.45);
+    swingPair("shinR", Math.PI * 1.35, params.legSwing * 0.45);
+    swingPair("footL", Math.PI * 0.55, params.legSwing * 0.22);
+    swingPair("footR", Math.PI * 1.55, params.legSwing * 0.22);
+    const intelligentGuard = Math.max(clamp01(params.armCrossGuard), estimateShoulderGuard(skeleton));
+    const shoulderRatio = Math.max(0, params.shoulderSwingRatio * (1 - intelligentGuard * 0.75));
+    const forearmRatio = params.forearmSwingRatio + intelligentGuard * 0.18;
+    const handRatio = params.handSwingRatio + intelligentGuard * 0.12;
+
+    // 肩部摆动幅度小，并在 PSD 贴图 pivot 靠近肩关节/覆盖不足时自动继续压低；
+    // 主要摆动位移由前臂和手接力，避免双手交叉极值露出肩膀关节。
+    swingPair("upperArmL", Math.PI, params.armSwing * shoulderRatio);
+    swingPair("upperArmR", 0, params.armSwing * shoulderRatio);
+    swingPair("forearmL", Math.PI * 1.05, params.armSwing * forearmRatio);
+    swingPair("forearmR", Math.PI * 0.05, params.armSwing * forearmRatio);
+    swingPair("handL", Math.PI * 1.1, params.armSwing * handRatio);
+    swingPair("handR", Math.PI * 0.1, params.armSwing * handRatio);
+    swingPair("hairFront", Math.PI * 0.25, params.bodyBob * 1.1);
+    swingPair("hairBack", Math.PI * 0.45, params.bodyBob * 1.4);
+    swingPair("cape", Math.PI * 0.75, params.bodyBob * 2.2);
+    swingPair("skirt", Math.PI * 0.55, params.bodyBob * 1.8);
 
     // 四足兜底
     swingPair("legFL", 0, params.legSwing);
@@ -164,9 +259,30 @@ const walkTemplate: ActionTemplate = {
       }
     }
 
+    // 中线兜底：当 PSD 把 limb 服饰降级到 waist/chest（如 unsidedBoneNames），
+    // 普通 walk 的 thigh/forearm 关键帧失效。这里给 waist/root 加几条小幅时间轴：
+    // - waist 旋转 ±2°：模拟"重心左右切换"，让绑在 waist 上的整张裤子有微摆。
+    // - root translate X ±1.2px：极小幅左右晃。两者对正常素材几乎不可见，对全无侧服饰素材"撑住"动感。
+    pushMidlineFallbackWalk(anim, skeleton, sampleCount, duration);
+
     return anim;
   },
 };
+
+/**
+ * walk 中线兜底：让 PSD1 这类"无肢体绑定"素材至少有重心切换 + 整体微晃。
+ * 对正常素材也加但幅度极小，几乎不可见。
+ */
+function pushMidlineFallbackWalk(anim: Animation, skeleton: Skeleton, sampleCount: number, duration: number) {
+  pushRotateSamples(anim, skeleton, "waist", sampleCount, duration, 2.2, Math.PI / 2);
+  pushRotateSamples(anim, skeleton, "chest", sampleCount, duration, 1.4, Math.PI / 2);
+  const root = findBoneByName(skeleton, "root");
+  if (root) {
+    const tlRoot = ensureTimeline(anim, root.id);
+    const xSamples = sampleSinKeyframes(sampleCount, duration, (t) => Math.sin((t / duration) * Math.PI * 2) * 1.2);
+    for (const s of xSamples) pushKey(tlRoot, { time: s.time, channel: "translate", values: [s.value, 0], easing: "linear" });
+  }
+}
 
 // ---------- attack 挥击 ----------
 
@@ -187,18 +303,33 @@ const attackTemplate: ActionTemplate = {
     const anim = emptyAnimation("attack", Math.max(0.4, duration), false);
 
     const armBone = findBoneByName(skeleton, "upperArmR") || findBoneByName(skeleton, "upperArmL");
+    // 肩部承担小幅，避免袖子绕轴翻转露出贴图缝；前臂/手承担主要挥击幅度。
+    const shoulderRatio = 0.4;
     if (armBone) {
       const tl = ensureTimeline(anim, armBone.id);
       pushKey(tl, { time: 0, channel: "rotate", values: [0], easing: "easeOut" });
-      pushKey(tl, { time: params.windup, channel: "rotate", values: [params.windupAngle], easing: "easeIn" });
+      pushKey(tl, { time: params.windup, channel: "rotate", values: [params.windupAngle * shoulderRatio], easing: "easeIn" });
       pushKey(tl, {
         time: params.windup + 0.05,
         channel: "rotate",
-        values: [params.strikeAngle],
+        values: [params.strikeAngle * shoulderRatio],
         easing: "easeOut",
       });
       pushKey(tl, { time: anim.durationSec, channel: "rotate", values: [0], easing: "linear" });
     }
+    const side = armBone?.name.endsWith("L") ? "L" : "R";
+    pushRotateKeys(anim, skeleton, `forearm${side}`, [
+      [0, 0, "easeOut"],
+      [params.windup, params.windupAngle * 0.7, "easeIn"],
+      [params.windup + 0.05, params.strikeAngle * 0.85, "easeOut"],
+      [anim.durationSec, 0, "linear"],
+    ]);
+    pushRotateKeys(anim, skeleton, `hand${side}`, [
+      [0, 0, "easeOut"],
+      [params.windup, params.windupAngle * 0.55, "easeIn"],
+      [params.windup + 0.05, params.strikeAngle * 0.65, "easeOut"],
+      [anim.durationSec, 0, "linear"],
+    ]);
 
     const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
     if (torso) {
@@ -207,6 +338,15 @@ const attackTemplate: ActionTemplate = {
       pushKey(tl, { time: params.windup, channel: "rotate", values: [-3], easing: "linear" });
       pushKey(tl, { time: params.windup + 0.05, channel: "rotate", values: [4], easing: "linear" });
       pushKey(tl, { time: anim.durationSec, channel: "rotate", values: [0], easing: "linear" });
+    }
+    for (const name of ["head", "hairFront", "hairBack", "cape", "skirt"]) {
+      const amp = name === "head" ? 3 : name.startsWith("hair") ? 8 : 10;
+      pushRotateKeys(anim, skeleton, name, [
+        [0, 0, "linear"],
+        [params.windup, -amp * 0.45, "easeIn"],
+        [params.windup + 0.05, amp, "easeOut"],
+        [anim.durationSec, 0, "linear"],
+      ]);
     }
 
     return anim;
@@ -246,12 +386,223 @@ const hurtTemplate: ActionTemplate = {
       pushKey(tl, { time: 0.18, channel: "rotate", values: [-params.tiltAngle * 0.4], easing: "easeOut" });
       pushKey(tl, { time: duration, channel: "rotate", values: [0], easing: "linear" });
     }
+    for (const [name, amp] of [
+      ["head", params.tiltAngle * 0.7],
+      ["hairFront", -params.tiltAngle * 1.4],
+      ["hairBack", -params.tiltAngle * 1.8],
+      ["cape", -params.tiltAngle * 1.6],
+      ["skirt", -params.tiltAngle * 1.2],
+    ] as Array<[string, number]>) {
+      pushRotateKeys(anim, skeleton, name, [
+        [0, 0, "easeOut"],
+        [0.08, amp, "easeIn"],
+        [0.18, -amp * 0.45, "easeOut"],
+        [duration, 0, "linear"],
+      ]);
+    }
+    pushTranslateSamples(anim, skeleton, "eyeL", 3, duration, -1.2, 0, 0);
+    pushTranslateSamples(anim, skeleton, "eyeR", 3, duration, -1.2, 0, 0);
+    pushTranslateSamples(anim, skeleton, "mouth", 3, duration, -0.8, 0.6, Math.PI / 2);
 
     return anim;
   },
 };
 
-export const actionTemplates: ActionTemplate[] = [idleTemplate, walkTemplate, attackTemplate, hurtTemplate];
+// ---------- walkFront 正面行走 ----------
+//
+// 设计要点（与侧面 walkTemplate 区别）：
+// - 髋（root/torso）做 sin*2 频率的"上下 bob"：每跨一步上下一次。
+// - 腿不绕 Z 旋转（绕 Z 在正面观下变左右八字开合，看着像踢腿）；
+//   改用 thigh.translate +y 抬腿（小腿 Y 缩短模拟膝弯），左右反相。
+// - 同时给左右脚一个极小的 X 平移（< 4px）让"前后步"在正面视角下有微观左右切换感。
+// - 手臂保留极小的躯干 sway，避免双手交叉穿身体。
+const walkFrontTemplate: ActionTemplate = {
+  id: "walkFront",
+  label: "Walk 正面行走",
+  description: "正面观行走：抬腿+轻微躯干 bob，不做绕 Z 八字开合。",
+  defaultDuration: 0.9,
+  defaultLoop: true,
+  params: [
+    { key: "legLift", label: "抬腿幅度 (px)", min: 0, max: 30, step: 0.5, default: 8 },
+    { key: "legPivotSwing", label: "腿轻摆 (度)", min: 0, max: 12, step: 0.5, default: 3, group: "advanced" },
+    { key: "shinFold", label: "小腿弯曲比", min: 0, max: 0.4, step: 0.01, default: 0.12, group: "advanced" },
+    { key: "torsoBob", label: "躯干上下 (px)", min: 0, max: 12, step: 0.5, default: 3 },
+    { key: "armSway", label: "手臂随动 (度)", min: 0, max: 18, step: 0.5, default: 5 },
+    { key: "footStepX", label: "脚前后步 (px)", min: 0, max: 8, step: 0.2, default: 2, group: "advanced" },
+  ],
+  generate: (skeleton, params) => {
+    const duration = 0.9;
+    const anim = emptyAnimation("walk", duration, true);
+    const sampleCount = 16;
+
+    // 双步频率：bob/抬腿用 2 倍频率（左右各一步=完整周期）
+    const stepFreq = (t: number) => Math.sin((t / duration) * Math.PI * 2);
+    const bobFreq = (t: number) => -Math.abs(Math.sin((t / duration) * Math.PI * 2)) * params.torsoBob;
+
+    // 躯干 bob
+    const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
+    if (torso) {
+      const tl = ensureTimeline(anim, torso.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, bobFreq);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "translate", values: [0, s.value], easing: "linear" });
+    }
+
+    // 抬腿：thighL/thighR translate Y 反相
+    const liftLeg = (boneName: string, phase: number) => {
+      const bone = findBoneByName(skeleton, boneName);
+      if (!bone) return;
+      const tl = ensureTimeline(anim, bone.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => Math.max(0, Math.sin((t / duration) * Math.PI * 2 + phase)) * -params.legLift);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "translate", values: [0, s.value], easing: "linear" });
+    };
+    liftLeg("thighL", 0);
+    liftLeg("thighR", Math.PI);
+
+    // 小腿弯曲：scale Y 缩，让贴图模拟"屈膝"
+    const foldShin = (boneName: string, phase: number) => {
+      const bone = findBoneByName(skeleton, boneName);
+      if (!bone) return;
+      const tl = ensureTimeline(anim, bone.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => 1 - Math.max(0, Math.sin((t / duration) * Math.PI * 2 + phase)) * params.shinFold);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "scale", values: [1, s.value], easing: "linear" });
+    };
+    foldShin("shinL", 0);
+    foldShin("shinR", Math.PI);
+
+    // 腿微摆（极小幅，给一点正面行走"重心切换"感）
+    pushRotateSamples(anim, skeleton, "thighL", sampleCount, duration, params.legPivotSwing, 0);
+    pushRotateSamples(anim, skeleton, "thighR", sampleCount, duration, -params.legPivotSwing, 0);
+
+    // 脚前后步：translate X 反相（极小幅）
+    const stepFoot = (boneName: string, phase: number) => {
+      const bone = findBoneByName(skeleton, boneName);
+      if (!bone) return;
+      const tl = ensureTimeline(anim, bone.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => Math.sin((t / duration) * Math.PI * 2 + phase) * params.footStepX);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "translate", values: [s.value, 0], easing: "linear" });
+    };
+    stepFoot("footL", 0);
+    stepFoot("footR", Math.PI);
+
+    // 手臂：极小躯干随动，反相，避免穿身
+    pushRotateSamples(anim, skeleton, "upperArmL", sampleCount, duration, params.armSway, Math.PI);
+    pushRotateSamples(anim, skeleton, "upperArmR", sampleCount, duration, params.armSway, 0);
+    pushRotateSamples(anim, skeleton, "forearmL", sampleCount, duration, params.armSway * 0.6, Math.PI * 1.05);
+    pushRotateSamples(anim, skeleton, "forearmR", sampleCount, duration, params.armSway * 0.6, 0.05);
+
+    // 头发/披风轻轻随 bob
+    pushRotateSamples(anim, skeleton, "hairFront", sampleCount, duration, params.torsoBob * 0.6, Math.PI * 0.3);
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.torsoBob * 0.8, Math.PI * 0.5);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.torsoBob * 1.4, Math.PI * 0.8);
+    pushRotateSamples(anim, skeleton, "skirt", sampleCount, duration, params.torsoBob * 1.2, Math.PI * 0.6);
+
+    // 中线兜底（同 walkTemplate）：让全无侧服饰素材也有重心切换。
+    pushMidlineFallbackWalk(anim, skeleton, sampleCount, duration);
+
+    return anim;
+  },
+};
+
+// ---------- idleFront 正面待机 ----------
+const idleFrontTemplate: ActionTemplate = {
+  id: "idleFront",
+  label: "Idle 正面呼吸",
+  description: "正面观待机：上下浮动 + 左右极轻重心切换。",
+  defaultDuration: 1.6,
+  defaultLoop: true,
+  params: [
+    { key: "amplitudeY", label: "上下幅度", min: 0, max: 12, step: 0.5, default: 3 },
+    { key: "swayX", label: "重心切换 (px)", min: 0, max: 4, step: 0.1, default: 1 },
+    { key: "headRot", label: "头部摆动 (度)", min: 0, max: 6, step: 0.1, default: 1.2 },
+  ],
+  generate: (skeleton, params) => {
+    const duration = 1.6;
+    const anim = emptyAnimation("idle", duration, true);
+    const sampleCount = 12;
+
+    const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
+    if (torso) {
+      const tl = ensureTimeline(anim, torso.id);
+      const trans = sampleSinKeyframes(sampleCount, duration, (t) => Math.sin((t / duration) * Math.PI * 2) * -params.amplitudeY);
+      const transX = sampleSinKeyframes(sampleCount, duration, (t) => Math.sin((t / duration) * Math.PI * 2 + Math.PI / 2) * params.swayX);
+      for (let i = 0; i < trans.length; i += 1) {
+        pushKey(tl, { time: trans[i].time, channel: "translate", values: [transX[i].value, trans[i].value], easing: "linear" });
+      }
+    }
+    pushRotateSamples(anim, skeleton, "head", sampleCount, duration, params.headRot, Math.PI / 4);
+    pushRotateSamples(anim, skeleton, "hairFront", sampleCount, duration, params.headRot * 1.4, Math.PI * 0.7);
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.headRot * 1.1, Math.PI * 0.95);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.amplitudeY * 0.5, Math.PI * 1.1);
+    pushRotateSamples(anim, skeleton, "skirt", sampleCount, duration, params.amplitudeY * 0.4, Math.PI * 0.9);
+    return anim;
+  },
+};
+
+// ---------- runFront 正面奔跑 ----------
+// 与 walkFront 同结构，加大幅 + 提高频率（步幅快），保留躯干轻微前倾。
+const runFrontTemplate: ActionTemplate = {
+  id: "runFront",
+  label: "Run 正面奔跑",
+  description: "正面观奔跑：抬腿幅度更大、躯干轻微前倾。",
+  defaultDuration: 0.6,
+  defaultLoop: true,
+  params: [
+    { key: "legLift", label: "抬腿幅度 (px)", min: 4, max: 40, step: 0.5, default: 14 },
+    { key: "torsoBob", label: "躯干上下 (px)", min: 1, max: 14, step: 0.5, default: 5 },
+    { key: "torsoLean", label: "躯干前倾 (度)", min: 0, max: 12, step: 0.5, default: 4 },
+    { key: "armSway", label: "手臂摆动 (度)", min: 4, max: 30, step: 0.5, default: 10 },
+  ],
+  generate: (skeleton, params) => {
+    const duration = 0.6;
+    const anim = emptyAnimation("run", duration, true);
+    const sampleCount = 14;
+
+    const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
+    if (torso) {
+      const tl = ensureTimeline(anim, torso.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => -Math.abs(Math.sin((t / duration) * Math.PI * 2)) * params.torsoBob);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "translate", values: [0, s.value], easing: "linear" });
+      // 持续前倾（不振荡），写两个端点即可：
+      pushKey(tl, { time: 0, channel: "rotate", values: [params.torsoLean], easing: "linear" });
+      pushKey(tl, { time: duration, channel: "rotate", values: [params.torsoLean], easing: "linear" });
+    }
+
+    const liftLeg = (boneName: string, phase: number) => {
+      const bone = findBoneByName(skeleton, boneName);
+      if (!bone) return;
+      const tl = ensureTimeline(anim, bone.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => Math.max(0, Math.sin((t / duration) * Math.PI * 2 + phase)) * -params.legLift);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "translate", values: [0, s.value], easing: "linear" });
+    };
+    liftLeg("thighL", 0);
+    liftLeg("thighR", Math.PI);
+
+    pushRotateSamples(anim, skeleton, "upperArmL", sampleCount, duration, params.armSway, Math.PI);
+    pushRotateSamples(anim, skeleton, "upperArmR", sampleCount, duration, params.armSway, 0);
+    pushRotateSamples(anim, skeleton, "forearmL", sampleCount, duration, params.armSway * 0.7, Math.PI * 1.05);
+    pushRotateSamples(anim, skeleton, "forearmR", sampleCount, duration, params.armSway * 0.7, 0.05);
+
+    pushRotateSamples(anim, skeleton, "hairFront", sampleCount, duration, params.torsoBob * 0.8, Math.PI * 0.3);
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.torsoBob * 1.0, Math.PI * 0.5);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.torsoBob * 2.0, Math.PI * 0.8);
+    pushRotateSamples(anim, skeleton, "skirt", sampleCount, duration, params.torsoBob * 1.6, Math.PI * 0.6);
+
+    return anim;
+  },
+};
+
+export const actionTemplates: ActionTemplate[] = [
+  idleTemplate,
+  walkTemplate,
+  attackTemplate,
+  hurtTemplate,
+  walkFrontTemplate,
+  idleFrontTemplate,
+  runFrontTemplate,
+];
+
+/** 各预制对哪种姿态最适合：UI 高亮 + 投影决策都用它。Re-export 自 templatePoseMap 以兼容外部引用。 */
+export { TEMPLATE_PRESET_POSE };
 
 export function getActionTemplate(id: string): ActionTemplate | undefined {
   return actionTemplates.find((t) => t.id === id);
@@ -264,11 +615,15 @@ export function defaultParamsFor(template: ActionTemplate): Record<string, numbe
 }
 
 // 把当前模板的产出 Animation 替换 / 写入 skeleton.animations
-export function applyAction(skeleton: Skeleton, templateId: string, params: Record<string, number>): Skeleton {
+// pose（可选）：当前角色面对方向；若为 front/back 且模板是 side 取向，会调用 poseProjection 把动画"翻译"过来。
+export function applyAction(skeleton: Skeleton, templateId: string, params: Record<string, number>, pose?: CharacterPose): Skeleton {
   const tpl = getActionTemplate(templateId);
   if (!tpl) return skeleton;
-  const anim = tpl.generate(skeleton, params);
+  let anim = tpl.generate(skeleton, params);
   anim.sourceTemplate = { templateId, params: { ...params } };
+  if (pose) {
+    anim = projectAnimationToPose(anim, skeleton, pose);
+  }
   const existed = skeleton.animations.find((a) => a.name === anim.name);
   const filtered = existed ? skeleton.animations.filter((a) => a.id !== existed.id) : skeleton.animations;
   return { ...skeleton, animations: [...filtered, anim] };

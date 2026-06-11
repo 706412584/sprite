@@ -123,14 +123,23 @@ export const SPRITE_DIRECTIONS: Array<{ id: SpriteDirection; label: string; prom
 ];
 
 export const DEFAULT_ACTIONS: SpriteFlowAction[] = [
-  { id: "idle", label: "待机", hint: "idle breathing loop, weight shifts gently side to side, shoulders rise and fall, arms relaxed but not identical between frames" },
-  { id: "walk", label: "行走", hint: "walk cycle, left foot forward then right foot forward, arms swing opposite to legs, clear contact-pass-up-pass phases, visible foot contact changes" },
-  { id: "run", label: "奔跑", hint: "run cycle, alternating left and right leg stride, one leg extends forward while the other pushes off behind, arms pump opposite to legs, torso leans forward, clear flight phase with both feet off ground" },
-  { id: "attack", label: "攻击", hint: "attack combo, wind-up then slash or strike then impact then follow-through then recover to stance" },
-  { id: "cast", label: "施法", hint: "spell casting, hands or staff gather energy then raise then release burst then magic afterglow cools down" },
-  { id: "jump", label: "跳跃", hint: "jump, crouch then spring upward then peak in air with both feet off ground then land and absorb impact" },
-  { id: "dodge", label: "闪避", hint: "dodge roll or sidestep, lean then tuck or shift into fast sideways movement then unfold then return to stance" },
-  { id: "death", label: "倒地", hint: "death, hit reaction then stagger then knees buckle then collapse on ground into a final readable pose" },
+  // 通用游戏角色动作
+  { id: "idle", label: "待机", hint: "idle breathing loop conveyed through pose only: weight shifts gently side to side, shoulders rise and fall, arms relaxed and showing micro-variation between every frame; no two adjacent frames may be visually identical; no floating effects, no symbols, no aura" },
+  { id: "walk", label: "行走", hint: "walk cycle driven by leg and foot motion: left foot forward then right foot forward, supporting foot changes every frame, arms swing opposite to legs, clear contact-pass-up-pass phases, visible foot contact change; speed conveyed by stride only, no speed lines, no dust, no shadow" },
+  { id: "run", label: "奔跑", hint: "run cycle with alternating left and right leg stride, one leg extends forward while the other pushes off behind, arms pump opposite to legs, torso leans forward, clear flight phase with both feet off ground; speed conveyed by stride and lean only, no speed lines, no dust, no afterimages, no motion blur" },
+  { id: "attack", label: "攻击", hint: "attack combo conveyed by weapon and body trajectory: clear wind-up, main strike or slash with weapon arc, attached impact effect on the weapon edge or contact point at the strike frame, follow-through, recover to stance; impact effects must be attached and hard-edged, no floating stars or detached arcs" },
+  { id: "cast", label: "施法", hint: "spell casting in clear phases: hands or staff gather attached glowing energy, raise into casting pose, release a burst that emerges directly from hands or staff, then magic afterglow cools down; magic effect must be attached to hands or focus prop, no detached sparkles around the body, no symbol icons" },
+  { id: "jump", label: "跳跃", hint: "jump with clear vertical body motion: crouch and load, spring upward, peak in air with both feet off ground, descend, land and absorb impact; vertical motion conveyed by body position only, no floor shadow, no dust cloud, no landing impact ring" },
+  { id: "dodge", label: "闪避", hint: "dodge roll or sidestep with clear silhouette displacement: lean and load, tuck or shift into fast sideways movement reaching peak displacement, unfold, return to stance; speed conveyed by body lean and foot position only, no speed lines, no afterimage trails, no motion blur" },
+  { id: "death", label: "倒地", hint: "death sequence with body height descending every frame: hit reaction and stagger, knees buckle, body collapses to ground into a final readable pose; sequence conveyed by posture and balance only, no floating cartoon X marks, no orbiting stars, no detached spirit wisps" },
+  // hatch-pet 风格状态动作（适用于角色 / 桌宠 / NPC 反馈循环）
+  { id: "running-right", label: "向右移动", hint: "directional locomotion to screen-right; the body faces right and the entire silhouette physically travels to the right across the row; alternating left/right leg stride that visibly alternates across the loop, supporting foot must change every frame" },
+  { id: "running-left", label: "向左移动", hint: "directional locomotion to screen-left; the body faces left and the entire silhouette physically travels to the left across the row; alternating left/right leg stride that visibly alternates across the loop, supporting foot must change every frame" },
+  { id: "waving", label: "挥手问候", hint: "greeting wave: a clear arc of the paw or hand or wing or limb starting low, rising into a held wave at peak, then returning, gesture conveyed by the limb itself with no external symbols" },
+  { id: "waiting", label: "期待询问", hint: "expectant asking pose for approval, help, or user input; head tilt, leaning forward, raised paw or hand, attentive gaze; distinct from idle and review" },
+  { id: "working", label: "专注工作", hint: "active focused task work conveyed entirely by upper body and head: thinking, scanning, typing-like finger taps, or focused effort; this is NOT physical running, the feet stay planted, the silhouette does not travel" },
+  { id: "review", label: "审视思考", hint: "focused inspection loop: subtle lean, blink, eye dart, head tilt, paw or hand near chin or face; conveys evaluation without props" },
+  { id: "failed", label: "失败沮丧", hint: "sad failure reaction: slumped shoulders, head down, attached tears or attached small breath puff; readable but not noisy" },
 ];
 
 /** Standard chroma key colors for background removal. */

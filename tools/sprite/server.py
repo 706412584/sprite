@@ -27,10 +27,101 @@ from fractions import Fraction
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 
 from PIL import Image, ImageChops, ImageFilter
+
+# --- Migrated to sprite_lab package (single source of truth). ---
+# Pure helpers, validators and isolated imaging routines now live in modules.
+# server.py re-imports them so existing references keep working unchanged.
+from sprite_lab.imaging.canvas import (
+    open_rgba_image,
+    enforce_hard_alpha,
+    resize_rgba_with_premultiplied_alpha,
+)
+from sprite_lab.imaging.chroma import chroma_key_frame, spriteflow_key_frame
+from sprite_lab.imaging.luma import luminance_alpha_mask, apply_alpha_mask
+from sprite_lab.imaging.color import parse_hex_color, rgb_to_hex, auto_key_color
+from sprite_lab.utils.fs import (
+    clean_filename,
+    repair_mojibake_text,
+    repair_mojibake_path,
+    slugify,
+    is_within_root,
+)
+from sprite_lab.utils.json_io import json_bytes, iso_now, timestamped_id
+from sprite_lab.utils.multipart import parse_multipart_uploads, parse_multipart_upload
+from sprite_lab.validation.types import safe_int, safe_float, clamp_int, clamp_float
+from sprite_lab.validation.normalizers import (
+    normalize_ai_resolution,
+    normalize_matte_mode,
+    normalize_matte_pipeline,
+    normalize_ai_model_key,
+    normalize_ai_device,
+    normalize_canvas_mode,
+    normalize_corridorkey_screen,
+    resolve_corridorkey_screen,
+)
+from sprite_lab.ffmpeg.binaries import (
+    ffmpeg_fallback_root,
+    resolve_ffmpeg_binary,
+    run_process,
+)
+from sprite_lab.ffmpeg.accel import (
+    configured_ffmpeg_accel_mode,
+    available_ffmpeg_hwaccels,
+    preferred_ffmpeg_hwaccel,
+    ffmpeg_accel_label,
+    ffmpeg_accel_payload,
+    static_image_payload,
+    custom_animation_payload,
+    run_ffmpeg_with_auto_accel,
+)
+from sprite_lab.ffmpeg.extract import extract_image_frame
+from sprite_lab.storage.media import (
+    ffprobe_json,
+    parse_frame_rate,
+    video_info,
+    image_info,
+    content_type_extension,
+    sniff_media_extension,
+    detect_media_type,
+    preferred_media_extension,
+    media_info,
+)
+from sprite_lab.storage.uploads import (
+    upload_dir,
+    upload_manifest_path,
+    load_upload_manifest,
+    save_upload_manifest,
+    source_media_entry,
+    source_video_path,
+    build_upload_payload,
+    register_video_from_path,
+    register_uploaded_file,
+)
+from sprite_lab.storage.jobs import (
+    job_dir,
+    job_manifest_path,
+    save_job_manifest,
+    load_job_manifest,
+    job_raw_frame_path,
+)
+from sprite_lab.storage.previews import (
+    preview_dir,
+    load_preview_manifest,
+    save_preview_manifest,
+)
+from sprite_lab.tasks.runner import (
+    TASKS,
+    TASKS_LOCK,
+    append_task_log,
+    update_task_progress,
+    task_progress_payload,
+    run_background_task,
+)
+import sprite_lab.routes as _routes  # noqa: F401  registers route handlers
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -52,8 +143,7 @@ AI_MODEL_CACHE_ENV = "SPRITE_VIDEO_LAB_AI_MODEL_CACHE"
 CORRIDORKEY_ROOT_ENV = "SPRITE_VIDEO_LAB_CORRIDORKEY_ROOT"
 LANCZOS = Image.Resampling.LANCZOS
 APP_VERSION_POLL_MS = 1200
-TASKS: dict[str, dict] = {}
-TASKS_LOCK = threading.Lock()
+
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 ANIMATION_FRAME_EXTENSIONS = IMAGE_EXTENSIONS
@@ -122,6 +212,34 @@ POSE_LANDMARK_NAMES = {
     27: "left_ankle",
     28: "right_ankle",
 }
+# 人体语义解析模型：SegFormer（ATR 18 类），像素级分出头发/脸/上衣/裤/裙/手臂/腿/鞋等。
+# 纯 transformers + HF 缓存，CPU 可跑，复用 BiRefNet 的缓存/设备机制，无需单独下 .task。
+HUMAN_PARSE_MODEL_KEY = "segformer-b2-clothes"
+HUMAN_PARSE_MODEL_REPO = "mattmdjaga/segformer_b2_clothes"
+HUMAN_PARSE_MODEL_LABEL = "SegFormer B2 Clothes (ATR 18 类)"
+# ATR 标签索引 → (语义部件名 camelCase, 中文名)。Background(0) 不导出。
+# 注意：Left/Right 是“图像视角”，与 humanoid 模板的角色视角相反，前端按 mirror 处理。
+HUMAN_PARSE_LABELS = {
+    0: None,  # Background
+    1: ("hat", "帽子"),
+    2: ("hair", "头发"),
+    3: ("sunglasses", "墨镜"),
+    4: ("upperClothes", "上衣"),
+    5: ("skirt", "裙子"),
+    6: ("pants", "裤子"),
+    7: ("dress", "连衣裙"),
+    8: ("belt", "腰带"),
+    9: ("shoeL", "左鞋"),
+    10: ("shoeR", "右鞋"),
+    11: ("face", "脸"),
+    12: ("legL", "左腿"),
+    13: ("legR", "右腿"),
+    14: ("armL", "左臂"),
+    15: ("armR", "右臂"),
+    16: ("bag", "包"),
+    17: ("scarf", "围巾"),
+}
+HUMAN_PARSE_MIN_AREA = 64  # 小于该像素数的语义块视为噪声丢弃
 AI_MATTE_MODES = {
     "none",
     "chroma",
@@ -152,14 +270,14 @@ CORRIDORKEY_GPU_DESPECKLE_PIXEL_LIMIT = 2**24
 CORRIDORKEY_SCREEN_COLORS = {"auto", "green", "blue"}
 CANVAS_MODES = {"auto", "square_bottom", "square_center"}
 
-_FFMPEG_HWACCELS_CACHE: set[str] | None = None
 _BIREFNET_MODEL_CACHE: dict[tuple[str, str], object] = {}
 _POSE_MODEL_CACHE: dict[str, object] = {}
+_HUMAN_PARSE_MODEL_CACHE: dict[str, object] = {}
 _CORRIDORKEY_ENGINE_CACHE: dict[tuple[str, str], object] = {}
 
 
 def ensure_runtime_dirs() -> None:
-    for directory in (APP_DIR, WORK_DIR, UPLOADS_DIR, JOBS_DIR, EXPORTS_DIR, PREVIEWS_DIR, DOWNLOADS_DIR):
+    for directory in (WORK_DIR, UPLOADS_DIR, JOBS_DIR, EXPORTS_DIR, PREVIEWS_DIR, DOWNLOADS_DIR):
         directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -177,15 +295,6 @@ def configured_port(cli_port: int | None = None) -> int:
     except ValueError:
         return DEFAULT_PORT
     return port if 1 <= port <= 65535 else DEFAULT_PORT
-
-
-def ffmpeg_fallback_root() -> Path | None:
-    configured = str(os.environ.get(FFMPEG_DIR_ENV, "")).strip()
-    if configured:
-        return Path(configured).expanduser()
-    if DEFAULT_FFMPEG_FALLBACK_ROOT.exists():
-        return DEFAULT_FFMPEG_FALLBACK_ROOT
-    return None
 
 
 def default_ai_model_cache_dir() -> Path:
@@ -224,331 +333,6 @@ def configure_ai_model_cache() -> Path:
     return cache_dir
 
 
-def clean_filename(name: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", Path(name).name).strip(".-")
-    return cleaned or "video"
-
-
-def repair_mojibake_text(value: str) -> str:
-    repaired = value
-    for bad, good in MOJIBAKE_REPLACEMENTS.items():
-        repaired = repaired.replace(bad, good)
-    return repaired
-
-
-def repair_mojibake_path(path: Path) -> Path:
-    return Path(repair_mojibake_text(str(path)))
-
-
-def slugify(value: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", value).strip("-")
-    return cleaned or "item"
-
-
-def json_bytes(payload: dict) -> bytes:
-    return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-
-
-def iso_now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
-
-
-def timestamped_id() -> str:
-    return f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
-
-
-def parse_hex_color(raw: str) -> tuple[int, int, int]:
-    value = raw.strip().lstrip("#")
-    if len(value) != 6:
-        raise ValueError(f"invalid color: {raw}")
-    return (int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16))
-
-
-def rgb_to_hex(rgb: tuple[int, int, int]) -> str:
-    return f"#{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
-
-
-def safe_int(value, default: int) -> int:
-    try:
-        return int(value)
-    except Exception:
-        return default
-
-
-def safe_float(value, default: float) -> float:
-    try:
-        return float(value)
-    except Exception:
-        return default
-
-
-def normalize_ai_resolution(value) -> int:
-    resolution = safe_int(value, DEFAULT_AI_MATTE_RESOLUTION)
-    resolution = max(AI_MATTE_MIN_RESOLUTION, min(AI_MATTE_MAX_RESOLUTION, resolution))
-    half_step = AI_MATTE_RESOLUTION_MULTIPLE // 2
-    aligned = ((resolution + half_step) // AI_MATTE_RESOLUTION_MULTIPLE) * AI_MATTE_RESOLUTION_MULTIPLE
-    return max(AI_MATTE_MIN_RESOLUTION, min(AI_MATTE_MAX_RESOLUTION, aligned))
-
-
-def clamp_float(value: float, minimum: float, maximum: float) -> float:
-    return min(maximum, max(minimum, value))
-
-
-def clamp_int(value: int, minimum: int, maximum: int) -> int:
-    return min(maximum, max(minimum, value))
-
-
-def normalize_matte_mode(raw: str, chroma_enabled: bool) -> str:
-    value = str(raw or "").strip().lower().replace("-", "_")
-    aliases = {
-        "": "chroma" if chroma_enabled else "none",
-        "off": "none",
-        "disabled": "none",
-        "no": "none",
-        "key": "chroma",
-        "color": "chroma",
-        "green": "chroma",
-        "green_screen": "chroma",
-        "greenscreen": "chroma",
-        "green_key": "chroma",
-        "chroma_key": "chroma",
-        "spriteflow": "spriteflow",
-        "sprite_flow": "spriteflow",
-        "spriteflow_key": "spriteflow",
-        "colorkey": "spriteflow",
-        "color_key": "spriteflow",
-        "ai": "birefnet",
-        "birefnet": "birefnet",
-        "corridor": "corridorkey",
-        "corridor_key": "corridorkey",
-        "corridorkey": "corridorkey",
-        "luma": "luma",
-        "luma_key": "luma",
-        "luminance": "luma",
-        "birefnet_corridor": "birefnet_corridorkey",
-        "birefnet_corridor_key": "birefnet_corridorkey",
-        "birefnet_corridorkey": "birefnet_corridorkey",
-        "birefnet+corridor": "birefnet_corridorkey",
-        "birefnet+corridorkey": "birefnet_corridorkey",
-        "birefnet_luma": "birefnet_luma",
-        "birefnet+luma": "birefnet_luma",
-        "birefnet_luma_corridorkey": "birefnet_luma_corridorkey",
-        "birefnet_luma_corridor": "birefnet_luma_corridorkey",
-        "birefnet_luma_corridor_key": "birefnet_luma_corridorkey",
-        "birefnet_corridorkey_luma": "birefnet_luma_corridorkey",
-        "birefnet_corridor_luma": "birefnet_luma_corridorkey",
-        "birefnet+luma+corridor": "birefnet_luma_corridorkey",
-        "birefnet+luma+corridorkey": "birefnet_luma_corridorkey",
-        "birefnet+corridor+luma": "birefnet_luma_corridorkey",
-        "birefnet+corridorkey+luma": "birefnet_luma_corridorkey",
-        "ai_luma": "birefnet_luma",
-        "ai_glow": "birefnet_luma",
-    }
-    mode = aliases.get(value, value)
-    return mode if mode in AI_MATTE_MODES else ("chroma" if chroma_enabled else "none")
-
-
-def normalize_ai_model_key(raw: str) -> str:
-    value = str(raw or DEFAULT_AI_MATTE_MODEL).strip().lower()
-    aliases = {
-        "hr": "birefnet-hr-matting",
-        "hr-matting": "birefnet-hr-matting",
-        "matting": "birefnet-hr-matting",
-        "lite": "birefnet-lite-2k",
-        "lite-2k": "birefnet-lite-2k",
-        "2k": "birefnet-lite-2k",
-        "general": "birefnet-general",
-        "default": "birefnet-general",
-    }
-    value = aliases.get(value, value)
-    return value if value in AI_MATTE_MODEL_REPOS else DEFAULT_AI_MATTE_MODEL
-
-
-def normalize_ai_device(raw: str) -> str:
-    value = str(raw or "auto").strip().lower()
-    return AI_MATTE_DEVICE_ALIASES.get(value, "auto")
-
-
-def normalize_corridorkey_screen(raw: str) -> str:
-    value = str(raw or "auto").strip().lower()
-    return value if value in CORRIDORKEY_SCREEN_COLORS else "auto"
-
-
-def normalize_canvas_mode(raw: str) -> str:
-    value = str(raw or "auto").strip().lower().replace("-", "_")
-    aliases = {
-        "": "auto",
-        "auto_width": "auto",
-        "auto_center": "auto",
-        "rect": "auto",
-        "rectangle": "auto",
-        "center": "square_center",
-        "square": "square_bottom",
-        "bottom": "square_bottom",
-    }
-    value = aliases.get(value, value)
-    return value if value in CANVAS_MODES else "auto"
-
-
-def resolve_corridorkey_screen(raw: str, key_rgb: tuple[int, int, int]) -> str:
-    normalized = normalize_corridorkey_screen(raw)
-    if normalized != "auto":
-        return normalized
-    return "blue" if key_rgb[2] > key_rgb[1] and key_rgb[2] >= key_rgb[0] else "green"
-
-
-def resolve_ffmpeg_binary(name: str) -> str:
-    direct = shutil.which(name)
-    if direct:
-        return direct
-    fallback_root = ffmpeg_fallback_root()
-    if fallback_root is not None:
-        candidate = fallback_root / f"{name}.exe"
-        if candidate.exists():
-            return str(candidate)
-    raise FileNotFoundError(f"could not resolve {name}")
-
-
-def run_process(args: list[str]) -> str:
-    completed = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="ignore")
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip()
-        raise RuntimeError(detail or f"command failed: {' '.join(args)}")
-    return completed.stdout
-
-
-def configured_ffmpeg_accel_mode() -> str:
-    raw = str(os.environ.get(FFMPEG_ACCEL_ENV, "auto") or "auto").strip().lower()
-    return FFMPEG_ACCEL_ALIASES.get(raw, "auto")
-
-
-def available_ffmpeg_hwaccels() -> set[str]:
-    global _FFMPEG_HWACCELS_CACHE
-    if _FFMPEG_HWACCELS_CACHE is not None:
-        return _FFMPEG_HWACCELS_CACHE
-
-    ffmpeg = resolve_ffmpeg_binary("ffmpeg")
-    try:
-        output = run_process([ffmpeg, "-hide_banner", "-hwaccels"])
-    except Exception:
-        _FFMPEG_HWACCELS_CACHE = set()
-        return _FFMPEG_HWACCELS_CACHE
-
-    available: set[str] = set()
-    for line in output.splitlines():
-        value = line.strip().lower()
-        if not value or value.endswith(":"):
-            continue
-        if re.fullmatch(r"[a-z0-9_]+", value):
-            available.add(value)
-    _FFMPEG_HWACCELS_CACHE = available
-    return _FFMPEG_HWACCELS_CACHE
-
-
-def preferred_ffmpeg_hwaccel() -> tuple[str, str | None]:
-    requested = configured_ffmpeg_accel_mode()
-    if requested == "cpu":
-        return requested, None
-
-    available = available_ffmpeg_hwaccels()
-    if requested == "auto":
-        for candidate in FFMPEG_ACCEL_PRIORITY:
-            if candidate in available:
-                return requested, candidate
-        return requested, None
-
-    if requested in available:
-        return requested, requested
-    return requested, None
-
-
-def ffmpeg_accel_label(mode: str) -> str:
-    return "CPU" if mode == "cpu" else f"GPU ({mode})"
-
-
-def ffmpeg_accel_payload(
-    requested_mode: str,
-    selected_mode: str | None,
-    used_mode: str,
-    fallback_reason: str | None = None,
-) -> dict:
-    return {
-        "requested_mode": requested_mode,
-        "selected_mode": selected_mode,
-        "used_mode": used_mode,
-        "used_label": ffmpeg_accel_label(used_mode),
-        "fallback_to_cpu": bool(selected_mode and used_mode == "cpu"),
-        "fallback_reason": fallback_reason or "",
-    }
-
-
-def static_image_payload() -> dict:
-    return {
-        "requested_mode": "image",
-        "selected_mode": "",
-        "used_mode": "image",
-        "used_label": "Static image",
-        "fallback_to_cpu": False,
-        "fallback_reason": "",
-    }
-
-
-def custom_animation_payload() -> dict:
-    return {
-        "requested_mode": "animation",
-        "selected_mode": "",
-        "used_mode": "animation",
-        "used_label": "Custom animation frames",
-        "fallback_to_cpu": False,
-        "fallback_reason": "",
-    }
-
-
-def run_ffmpeg_with_auto_accel(args_builder) -> dict:
-    requested_mode, selected_mode = preferred_ffmpeg_hwaccel()
-    if selected_mode:
-        try:
-            run_process(args_builder(selected_mode))
-            return ffmpeg_accel_payload(requested_mode, selected_mode, selected_mode)
-        except RuntimeError as exc:
-            detail = str(exc).strip()
-            print(
-                f"[ffmpeg] {selected_mode} decode failed, falling back to CPU: {detail}",
-                file=sys.stderr,
-            )
-            run_process(args_builder(None))
-            return ffmpeg_accel_payload(
-                requested_mode,
-                selected_mode,
-                "cpu",
-                fallback_reason=detail,
-            )
-
-    run_process(args_builder(None))
-    return ffmpeg_accel_payload(requested_mode, None, "cpu")
-
-
-def extract_image_frame(source_path: Path, output_path: Path) -> tuple[Path, dict]:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    image = open_rgba_image(source_path)
-    image.save(output_path)
-    image.close()
-    return output_path, static_image_payload()
-
-
-def is_within_root(path: Path, root: Path) -> bool:
-    try:
-        path.resolve().relative_to(root.resolve())
-        return True
-    except ValueError:
-        return False
-
-
-def open_rgba_image(path: Path) -> Image.Image:
-    with Image.open(path) as image:
-        return image.convert("RGBA")
-
-
 def watch_targets() -> list[Path]:
     targets = [ROOT_DIR / "server.py"]
     if DIST_DIR.exists():
@@ -582,464 +366,6 @@ def open_path_in_file_browser(target: Path) -> None:
         subprocess.run(["open", str(resolved)], check=True)
         return
     subprocess.run(["xdg-open", str(resolved)], check=True)
-
-
-def enforce_hard_alpha(image: Image.Image, cutoff: int = 128) -> Image.Image:
-    rgba = image.convert("RGBA")
-    hardened_pixels: list[tuple[int, int, int, int]] = []
-    for r_value, g_value, b_value, alpha in rgba.getdata():
-        if alpha >= cutoff:
-            hardened_pixels.append((r_value, g_value, b_value, 255))
-        else:
-            hardened_pixels.append((0, 0, 0, 0))
-    hardened = Image.new("RGBA", rgba.size)
-    hardened.putdata(hardened_pixels)
-    return hardened
-
-
-def resize_rgba_with_premultiplied_alpha(image: Image.Image, size: tuple[int, int]) -> Image.Image:
-    rgba = image.convert("RGBA")
-    red, green, blue, alpha = rgba.split()
-    premultiplied_red = ImageChops.multiply(red, alpha)
-    premultiplied_green = ImageChops.multiply(green, alpha)
-    premultiplied_blue = ImageChops.multiply(blue, alpha)
-
-    resized_alpha = alpha.resize(size, LANCZOS)
-    resized_red = premultiplied_red.resize(size, LANCZOS)
-    resized_green = premultiplied_green.resize(size, LANCZOS)
-    resized_blue = premultiplied_blue.resize(size, LANCZOS)
-
-    pixels: list[tuple[int, int, int, int]] = []
-    for r_value, g_value, b_value, alpha_value in zip(
-        resized_red.getdata(),
-        resized_green.getdata(),
-        resized_blue.getdata(),
-        resized_alpha.getdata(),
-    ):
-        if alpha_value <= 0:
-            pixels.append((0, 0, 0, 0))
-            continue
-        pixels.append(
-            (
-                min(255, int((r_value * 255 + (alpha_value // 2)) / alpha_value)),
-                min(255, int((g_value * 255 + (alpha_value // 2)) / alpha_value)),
-                min(255, int((b_value * 255 + (alpha_value // 2)) / alpha_value)),
-                alpha_value,
-            )
-        )
-
-    resized = Image.new("RGBA", size)
-    resized.putdata(pixels)
-    return resized
-
-
-def ffprobe_json(path: Path) -> dict:
-    ffprobe = resolve_ffmpeg_binary("ffprobe")
-    output = run_process(
-        [
-            ffprobe,
-            "-v",
-            "error",
-            "-print_format",
-            "json",
-            "-show_streams",
-            "-show_format",
-            str(path),
-        ]
-    )
-    return json.loads(output)
-
-
-def parse_frame_rate(raw: str) -> float:
-    if not raw or raw == "0/0":
-        return 0.0
-    try:
-        return float(Fraction(raw))
-    except Exception:
-        return 0.0
-
-
-def video_info(path: Path) -> dict:
-    payload = ffprobe_json(path)
-    streams = payload.get("streams") or []
-    video_stream = next((item for item in streams if item.get("codec_type") == "video"), {})
-    width = safe_int(video_stream.get("width"), 0)
-    height = safe_int(video_stream.get("height"), 0)
-    fps = parse_frame_rate(str(video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate") or "0/0"))
-    duration = safe_float((payload.get("format") or {}).get("duration"), 0.0)
-    return {
-        "width": width,
-        "height": height,
-        "fps": fps,
-        "duration": duration,
-        "codec": str(video_stream.get("codec_name") or ""),
-    }
-
-
-def image_info(path: Path) -> dict:
-    with Image.open(path) as image:
-        width, height = image.size
-        codec = str((image.format or path.suffix.removeprefix(".") or "image")).lower()
-    return {
-        "width": width,
-        "height": height,
-        "fps": 0.0,
-        "duration": 0.0,
-        "codec": codec,
-    }
-
-
-def content_type_extension(content_type: str | None) -> str:
-    normalized = str(content_type or "").split(";", 1)[0].strip().lower()
-    return CONTENT_TYPE_EXTENSIONS.get(normalized, "")
-
-
-def sniff_media_extension(path: Path) -> str:
-    if not path.exists() or not path.is_file():
-        return ""
-    with path.open("rb") as handle:
-        head = handle.read(64)
-    if len(head) >= 12 and head[4:8] == b"ftyp":
-        return ".mp4"
-    if head.startswith(b"\x1a\x45\xdf\xa3"):
-        return ".webm"
-    if head.startswith(b"\x89PNG\r\n\x1a\n"):
-        return ".png"
-    if head.startswith(b"\xff\xd8\xff"):
-        return ".jpg"
-    if head.startswith(b"BM"):
-        return ".bmp"
-    if len(head) >= 12 and head.startswith(b"RIFF") and head[8:12] == b"WEBP":
-        return ".webp"
-    return ""
-
-
-def detect_media_type(path: Path, content_type: str | None = None) -> str:
-    suffix = path.suffix.lower()
-    if suffix in VIDEO_EXTENSIONS:
-        return "video"
-    if suffix in IMAGE_EXTENSIONS:
-        return "image"
-
-    content_extension = content_type_extension(content_type)
-    if content_extension in VIDEO_EXTENSIONS:
-        return "video"
-    if content_extension in IMAGE_EXTENSIONS:
-        return "image"
-
-    sniffed_extension = sniff_media_extension(path)
-    if sniffed_extension in VIDEO_EXTENSIONS:
-        return "video"
-    if sniffed_extension in IMAGE_EXTENSIONS:
-        return "image"
-
-    if path.exists() and path.is_file():
-        try:
-            with Image.open(path):
-                return "image"
-        except Exception:
-            pass
-        try:
-            ffprobe_json(path)
-            return "video"
-        except Exception:
-            pass
-
-    detail = path.suffix or content_type or path.name
-    raise ValueError(f"unsupported media type: {detail}")
-
-
-def preferred_media_extension(path: Path, media_type: str, content_type: str | None = None) -> str:
-    suffix = path.suffix.lower()
-    allowed = VIDEO_EXTENSIONS if media_type == "video" else IMAGE_EXTENSIONS
-    if suffix in allowed:
-        return suffix
-    content_extension = content_type_extension(content_type)
-    if content_extension in allowed:
-        return content_extension
-    sniffed_extension = sniff_media_extension(path)
-    if sniffed_extension in allowed:
-        return sniffed_extension
-    return ".mp4" if media_type == "video" else ".png"
-
-
-def media_info(path: Path, media_type: str | None = None) -> dict:
-    resolved_type = media_type or detect_media_type(path)
-    payload = video_info(path) if resolved_type == "video" else image_info(path)
-    payload["media_type"] = resolved_type
-    return payload
-
-
-def upload_dir(upload_id: str) -> Path:
-    return UPLOADS_DIR / upload_id
-
-
-def upload_manifest_path(upload_id: str) -> Path:
-    return upload_dir(upload_id) / "manifest.json"
-
-
-def load_upload_manifest(upload_id: str) -> dict:
-    path = upload_manifest_path(upload_id)
-    if not path.exists():
-        raise FileNotFoundError(f"upload not found: {upload_id}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def save_upload_manifest(upload_id: str, payload: dict) -> None:
-    path = upload_manifest_path(upload_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def source_media_entry(upload_id: str) -> tuple[Path, str]:
-    manifest = load_upload_manifest(upload_id)
-    path = repair_mojibake_path(Path(manifest["source_path"]))
-    if not path.exists():
-        raise FileNotFoundError(f"source missing: {path}")
-    media_type = str(manifest.get("media_type") or detect_media_type(path))
-    return path, media_type
-
-
-def source_video_path(upload_id: str) -> Path:
-    path, _ = source_media_entry(upload_id)
-    return path
-
-
-def build_upload_payload(upload_id: str, source_path: Path, display_name: str, media_type: str) -> dict:
-    info = media_info(source_path, media_type)
-    return {
-        "upload_id": upload_id,
-        "display_name": display_name,
-        "media_url": f"/media/upload/{upload_id}",
-        "video_url": f"/media/upload/{upload_id}",
-        "source_path": str(source_path),
-        "media_type": media_type,
-        "video_info": info,
-        "media_info": info,
-    }
-
-
-def register_video_from_path(source_path: Path) -> dict:
-    source_path = repair_mojibake_path(source_path).expanduser().resolve()
-    if not source_path.exists() or not source_path.is_file():
-        raise FileNotFoundError(f"file not found: {source_path}")
-    media_type = detect_media_type(source_path)
-
-    upload_id = timestamped_id()
-    manifest = {
-        "upload_id": upload_id,
-        "source_path": str(source_path),
-        "display_name": source_path.name,
-        "media_type": media_type,
-        "created_at": iso_now(),
-    }
-    save_upload_manifest(upload_id, manifest)
-    return build_upload_payload(upload_id, source_path, source_path.name, media_type)
-
-
-def parse_multipart_uploads(headers, body: bytes, field_name: str) -> list[SimpleNamespace]:
-    content_type = headers.get("Content-Type", "")
-    if "multipart/form-data" not in content_type.lower():
-        raise ValueError("multipart/form-data required")
-    message = BytesParser(policy=email_policy).parsebytes(
-        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
-    )
-    items: list[SimpleNamespace] = []
-    for part in message.iter_parts():
-        if part.get_param("name", header="content-disposition") != field_name:
-            continue
-        filename = part.get_filename() or "media"
-        payload = part.get_payload(decode=True) or b""
-        items.append(SimpleNamespace(filename=filename, type=part.get_content_type(), file=BytesIO(payload)))
-    return items
-
-
-def parse_multipart_upload(headers, body: bytes, field_name: str = "video"):
-    items = parse_multipart_uploads(headers, body, field_name)
-    if items:
-        return items[0]
-    raise ValueError("media file missing")
-
-
-def register_uploaded_file(file_item) -> dict:
-    filename = clean_filename(file_item.filename or "media")
-    content_type = str(getattr(file_item, "type", "") or "")
-    upload_id = timestamped_id()
-    target_dir = upload_dir(upload_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / filename
-    with target_path.open("wb") as handle:
-        shutil.copyfileobj(file_item.file, handle)
-    media_type = detect_media_type(target_path, content_type)
-    preferred_extension = preferred_media_extension(target_path, media_type, content_type)
-    if target_path.suffix.lower() not in (VIDEO_EXTENSIONS | IMAGE_EXTENSIONS):
-        renamed_path = target_path.with_name(f"{target_path.name}{preferred_extension}")
-        target_path.rename(renamed_path)
-        target_path = renamed_path
-        filename = target_path.name
-    manifest = {
-        "upload_id": upload_id,
-        "source_path": str(target_path),
-        "display_name": filename,
-        "media_type": media_type,
-        "created_at": iso_now(),
-    }
-    save_upload_manifest(upload_id, manifest)
-    return build_upload_payload(upload_id, target_path, filename, media_type)
-
-
-def auto_key_color(image: Image.Image) -> tuple[int, int, int]:
-    rgba = image.convert("RGBA")
-    width, height = rgba.size
-    sample_size = max(4, min(width, height) // 16)
-    boxes = [
-        (0, 0, sample_size, sample_size),
-        (width - sample_size, 0, width, sample_size),
-        (0, height - sample_size, sample_size, height),
-        (width - sample_size, height - sample_size, width, height),
-    ]
-    totals = [0, 0, 0]
-    count = 0
-    for left, top, right, bottom in boxes:
-        for y in range(top, bottom):
-            for x in range(left, right):
-                r_value, g_value, b_value, _ = rgba.getpixel((x, y))
-                totals[0] += r_value
-                totals[1] += g_value
-                totals[2] += b_value
-                count += 1
-    if count <= 0:
-        return (0, 255, 0)
-    return tuple(int(value / count) for value in totals)
-
-
-def chroma_key_frame(
-    image: Image.Image,
-    key_rgb: tuple[int, int, int],
-    threshold: int,
-    softness: int,
-    despill_strength: float,
-    halo_pixels: int,
-) -> Image.Image:
-    rgba = image.convert("RGBA")
-    output_pixels: list[tuple[int, int, int, int]] = []
-    k_r, k_g, k_b = key_rgb
-    if softness <= 0:
-        max_distance = max(threshold, 1)
-    else:
-        max_distance = threshold + softness
-
-    for r_value, g_value, b_value, _ in rgba.getdata():
-        dist = math.sqrt(
-            (r_value - k_r) ** 2
-            + (g_value - k_g) ** 2
-            + (b_value - k_b) ** 2
-        )
-        if dist <= threshold:
-            alpha = 0
-        elif softness <= 0 or dist >= max_distance:
-            alpha = 255
-        else:
-            alpha = int(((dist - threshold) / softness) * 255)
-
-        max_rb = max(r_value, b_value)
-        spill = max(0, g_value - max_rb)
-        closeness = max(0.0, 1.0 - min(dist / max_distance, 1.0))
-        reduction = int(spill * despill_strength * max(closeness, 1.0 - (alpha / 255.0)))
-        output_pixels.append(
-            (
-                r_value,
-                max(0, g_value - reduction),
-                b_value,
-                alpha,
-            )
-        )
-
-    keyed = Image.new("RGBA", rgba.size)
-    keyed.putdata(output_pixels)
-
-    if halo_pixels > 0:
-        alpha_channel = keyed.getchannel("A")
-        filter_size = (halo_pixels * 2) + 1
-        eroded = alpha_channel.filter(ImageFilter.MinFilter(filter_size))
-        keyed.putalpha(eroded)
-
-    return keyed
-
-
-def spriteflow_key_frame(
-    image: Image.Image,
-    key_rgb: tuple[int, int, int],
-    tolerance: float,
-    edge_blend: bool,
-    blend_zone_ratio: float,
-    alpha_cutoff: int,
-    spill_removal: bool,
-    spill_strength: float,
-) -> Image.Image:
-    """SpriteFlow 色键算法（完整移植自前端 slicer.ts 的 keyOutBackground）。
-
-    以 key_rgb 为背景色，按欧氏色距做边缘渐变抠像：blendZone 内全透明、
-    blendZone~maxDist 之间按比例衰减 alpha；可选去除主色溢色与低 alpha 截断。
-    """
-    import numpy as np
-
-    rgba = image.convert("RGBA")
-    arr = np.asarray(rgba).astype(np.float32)
-    if arr.size == 0:
-        return rgba
-    rgb = arr[..., :3]
-    alpha = arr[..., 3].copy()
-
-    k_r, k_g, k_b = (float(key_rgb[0]), float(key_rgb[1]), float(key_rgb[2]))
-    diff = rgb - np.array([k_r, k_g, k_b], dtype=np.float32)
-    dist_sq = np.sum(diff * diff, axis=-1)
-    dist = np.sqrt(dist_sq)
-
-    tolerance = max(1.0, float(tolerance))
-    blend_zone_ratio = min(0.95, max(0.05, float(blend_zone_ratio)))
-    alpha_cutoff = max(0, min(255, int(alpha_cutoff)))
-    spill_strength = min(1.0, max(0.0, float(spill_strength)))
-
-    if edge_blend:
-        max_dist = tolerance * math.sqrt(3.0)
-        blend_zone = tolerance * blend_zone_ratio
-        # blendZone 内完全透明
-        alpha[dist <= blend_zone] = 0.0
-        # blendZone~maxDist 之间按比例衰减
-        mid = (dist > blend_zone) & (dist <= max_dist)
-        ratio = (dist - blend_zone) / max(1.0, (max_dist - blend_zone))
-        alpha[mid] = alpha[mid] * ratio[mid]
-
-        if spill_removal:
-            spill_band = (alpha > 0) & (dist <= max_dist * 1.35)
-            if np.any(spill_band):
-                closeness = np.clip(1.0 - dist / max(1.0, max_dist * 1.35), 0.0, 1.0)
-                # 取背景色的主导通道，向另外两通道的最大值收敛
-                if k_r >= k_g and k_r >= k_b:
-                    dominant = 0
-                elif k_g >= k_b:
-                    dominant = 1
-                else:
-                    dominant = 2
-                a_idx = 1 if dominant == 0 else 0
-                b_idx = 1 if dominant == 2 else 2
-                neutral = np.maximum(rgb[..., a_idx], rgb[..., b_idx])
-                dom_channel = rgb[..., dominant]
-                target = spill_band & (dom_channel > neutral)
-                reduction = (dom_channel - neutral) * spill_strength * closeness
-                rgb[..., dominant] = np.where(target, dom_channel - reduction, dom_channel)
-    else:
-        tol2 = tolerance * tolerance * 3.0
-        alpha[dist_sq <= tol2] = 0.0
-
-    if alpha_cutoff > 0:
-        alpha[alpha <= alpha_cutoff] = 0.0
-
-    out = np.empty_like(arr)
-    out[..., :3] = np.clip(rgb, 0.0, 255.0)
-    out[..., 3] = np.clip(alpha, 0.0, 255.0)
-    return Image.fromarray(out.astype(np.uint8), "RGBA")
 
 
 def import_ai_matte_dependencies():
@@ -1176,6 +502,173 @@ def detect_pose_keypoints(image: Image.Image) -> dict:
         "score": score,
         "width": int(width),
         "height": int(height),
+    }
+
+
+def import_human_parse_dependencies():
+    """懒加载 SegFormer 解析所需依赖，镜像 import_ai_matte_dependencies 的缺包报错风格。"""
+    configure_ai_model_cache()
+    try:
+        import torch
+        from transformers import AutoModelForSemanticSegmentation, SegformerImageProcessor
+    except ModuleNotFoundError as exc:
+        missing_name = getattr(exc, "name", "human parsing dependency")
+        raise RuntimeError(
+            f"{missing_name} is not installed. Run: python -m pip install -r requirements-ai.txt"
+        ) from exc
+    return torch, AutoModelForSemanticSegmentation, SegformerImageProcessor
+
+
+def load_human_parse_model(requested_device: str):
+    """懒加载并缓存 SegFormer 人体解析模型 + 预处理器。复用 BiRefNet 的设备/缓存策略。"""
+    torch_module, auto_model, image_processor_cls = import_human_parse_dependencies()
+    device = resolve_ai_runtime_device(torch_module, requested_device)
+    cache_key = f"{HUMAN_PARSE_MODEL_REPO}@{device}"
+    if cache_key in _HUMAN_PARSE_MODEL_CACHE:
+        return _HUMAN_PARSE_MODEL_CACHE[cache_key], device
+
+    cache_dir = configure_ai_model_cache()
+    processor = image_processor_cls.from_pretrained(HUMAN_PARSE_MODEL_REPO, cache_dir=str(cache_dir))
+    model = auto_model.from_pretrained(HUMAN_PARSE_MODEL_REPO, cache_dir=str(cache_dir))
+    model.to(device)
+    model.eval()
+    bundle = {"model": model, "processor": processor}
+    _HUMAN_PARSE_MODEL_CACHE[cache_key] = bundle
+    return bundle, device
+
+
+def human_parse_label_map(image: Image.Image, requested_device: str):
+    """对单张图做像素级人体解析，返回每像素的 ATR 标签数组（numpy int，尺寸同原图）。"""
+    import numpy as np
+
+    torch_module, _auto_model, _proc_cls = import_human_parse_dependencies()
+    bundle, _device = load_human_parse_model(requested_device)
+    model = bundle["model"]
+    processor = bundle["processor"]
+
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    inputs = processor(images=rgb, return_tensors="pt")
+    pixel_values = inputs["pixel_values"].to(model.device)
+
+    with torch_module.no_grad():
+        outputs = model(pixel_values=pixel_values)
+        logits = outputs.logits  # [1, C, h', w']
+        # 上采样回原图尺寸（双线性），再 argmax 取每像素标签
+        upsampled = torch_module.nn.functional.interpolate(
+            logits,
+            size=(height, width),
+            mode="bilinear",
+            align_corners=False,
+        )
+        seg = upsampled.argmax(dim=1)[0].to("cpu").numpy().astype(np.int32)
+    return seg, width, height
+
+
+# 复合件定义：把若干 ATR 语义类按 mask 并集合成一个部件，使名称对齐 humanoid 槽位让 autoRig 命中。
+# head = 头发 + 脸 + 帽子 + 墨镜；torso = 上衣 + 连衣裙 + 腰带 + 围巾。
+# 四肢（upperArm/forearm/thigh/shin）仍交给 MediaPipe poseToParts，两者互补。
+HUMAN_PARSE_COMPOSITES: list[dict] = [
+    {"name": "head", "displayName": "head_头", "labels": [1, 2, 3, 11], "label_id": -1},
+    {"name": "torso", "displayName": "torso_躯干", "labels": [4, 7, 8, 17], "label_id": -2},
+]
+
+
+def _human_parse_mask_to_part(
+    mask,
+    src,
+    base_alpha,
+    name: str,
+    display_name: str,
+    label_index: int,
+) -> dict | None:
+    """把单个 bool mask 裁成 bbox + 不规则透明 PNG 的 part 字典。
+
+    alpha = 源图 alpha × 解析 mask（mask 外透明 → 贴合轮廓）。
+    mask 面积或 bbox 过小返回 None。
+    """
+    import numpy as np
+
+    area = int(mask.sum())
+    if area < HUMAN_PARSE_MIN_AREA:
+        return None
+
+    ys, xs = np.where(mask)
+    min_x, max_x = int(xs.min()), int(xs.max())
+    min_y, max_y = int(ys.min()), int(ys.max())
+    box_w = max_x - min_x + 1
+    box_h = max_y - min_y + 1
+    if box_w < 4 or box_h < 4:
+        return None
+
+    crop = src[min_y : max_y + 1, min_x : max_x + 1, :].copy()
+    crop_mask = mask[min_y : max_y + 1, min_x : max_x + 1]
+    crop_base_alpha = base_alpha[min_y : max_y + 1, min_x : max_x + 1]
+    final_alpha = np.where(crop_mask, crop_base_alpha, 0.0)
+    crop[..., 3] = np.clip(final_alpha * 255.0, 0, 255).astype(np.uint8)
+
+    part_img = Image.fromarray(crop, "RGBA")
+    buffer = BytesIO()
+    part_img.save(buffer, format="PNG")
+    png_data_url = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    return {
+        "name": name,
+        "displayName": display_name,
+        "label": label_index,
+        "bbox": {"x": min_x, "y": min_y, "w": box_w, "h": box_h},
+        "area": area,
+        "pngDataUrl": png_data_url,
+        "width": box_w,
+        "height": box_h,
+    }
+
+
+def human_parse_parts(image: Image.Image, requested_device: str) -> dict:
+    """像素级人体解析 → 语义部件的 bbox + 不规则透明 PNG（用解析 mask 裁 alpha）。
+
+    除每个 ATR 单类外，额外合成 head / torso 复合件对齐 humanoid 槽位，让 autoRig 自动命中；
+    四肢交给 MediaPipe poseToParts，两者互补。若源图已是去底 RGBA，会与原 alpha 相乘保留抠图边缘。
+    返回 {parts: [...], width, height, labels_present}。
+    """
+    import numpy as np
+
+    seg, width, height = human_parse_label_map(image, requested_device)
+    rgba = image.convert("RGBA")
+    src = np.array(rgba, dtype=np.uint8)  # [H, W, 4]
+    base_alpha = src[..., 3].astype(np.float32) / 255.0  # 源图自带 alpha（去底结果）
+
+    parts: list[dict] = []
+    labels_present: list[str] = []
+
+    # 1) 先合成 head / torso 复合件（mask 并集），让槽位名对齐 humanoid 模板。
+    for composite in HUMAN_PARSE_COMPOSITES:
+        union_mask = np.zeros((height, width), dtype=bool)
+        for label_index in composite["labels"]:
+            union_mask |= seg == label_index
+        part = _human_parse_mask_to_part(
+            union_mask, src, base_alpha, composite["name"], composite["displayName"], composite["label_id"]
+        )
+        if part is not None:
+            labels_present.append(composite["name"])
+            parts.append(part)
+
+    # 2) 再输出每个 ATR 单类（保留原名供手动绑定，复合件已覆盖的类也单独导出便于细调）。
+    for label_index, meta in HUMAN_PARSE_LABELS.items():
+        if meta is None:
+            continue
+        name, display_cn = meta
+        mask = seg == label_index
+        part = _human_parse_mask_to_part(mask, src, base_alpha, name, f"{name}_{display_cn}", label_index)
+        if part is not None:
+            labels_present.append(name)
+            parts.append(part)
+
+    return {
+        "parts": parts,
+        "width": int(width),
+        "height": int(height),
+        "labels_present": labels_present,
     }
 
 
@@ -1451,48 +944,6 @@ def birefnet_alpha_mask(
     }
 
 
-def luminance_alpha_mask(
-    image: Image.Image,
-    black_point: int,
-    white_point: int,
-    gamma: float,
-    strength: float,
-    key_rgb: tuple[int, int, int] | None = None,
-    key_suppression: float = 0.95,
-) -> Image.Image:
-    black = max(0, min(254, int(black_point)))
-    white = max(black + 1, min(255, int(white_point)))
-    curve_gamma = max(0.05, float(gamma or 1.0))
-    curve_strength = max(0.0, min(2.0, float(strength or 1.0)))
-    key_strength = max(0.0, min(1.0, float(key_suppression)))
-    rgb = image.convert("RGB")
-    scale = white - black
-    output = Image.new("L", rgb.size)
-    output_pixels: list[int] = []
-    for r_value, g_value, b_value in rgb.getdata():
-        luma = int((0.2126 * r_value) + (0.7152 * g_value) + (0.0722 * b_value))
-        normalized = clamp_float((luma - black) / scale, 0.0, 1.0)
-        adjusted = normalized ** curve_gamma
-        alpha = clamp_float(adjusted * curve_strength, 0.0, 1.0)
-        if key_rgb is not None and key_strength > 0:
-            k_r, k_g, k_b = key_rgb
-            dist = math.sqrt((r_value - k_r) ** 2 + (g_value - k_g) ** 2 + (b_value - k_b) ** 2)
-            closeness = 1.0 - min(dist / 180.0, 1.0)
-            alpha *= 1.0 - ((closeness ** 2) * key_strength)
-        output_pixels.append(round(alpha * 255))
-    output.putdata(output_pixels)
-    return output
-
-
-def apply_alpha_mask(image: Image.Image, alpha_mask: Image.Image) -> Image.Image:
-    rgba = image.convert("RGBA")
-    mask = alpha_mask.convert("L")
-    if mask.size != rgba.size:
-        mask = mask.resize(rgba.size, LANCZOS)
-    rgba.putalpha(mask)
-    return rgba
-
-
 def despill_alpha_edges(
     image: Image.Image,
     key_rgb: tuple[int, int, int],
@@ -1529,6 +980,83 @@ def despill_alpha_edges(
     return cleaned
 
 
+def edge_decontaminate(image: Image.Image, radius: int = 2, strength: float = 1.0) -> Image.Image:
+    """边缘去污：把半透明边缘像素的 RGB 替换为最近不透明像素颜色，消除白色/背景色残留。
+
+    原理类似 Photoshop「Defringe / Remove White Matte」：
+    1. 找到半透明区域（alpha 在 1-254 之间）；
+    2. 用邻域完全不透明像素的颜色做加权平均，替换这些半透明像素的 RGB；
+    3. 保留原始 alpha 不变。
+
+    Args:
+        image: RGBA 图像
+        radius: 扩散搜索半径（像素），越大越能填充较宽的白边
+        strength: 替换强度（0-1），1.0 = 完全替换，0.5 = 与原色混合
+    """
+    if strength <= 0:
+        return image
+    strength = min(1.0, float(strength))
+    radius = max(1, min(8, int(radius)))
+
+    import numpy as np
+
+    rgba = image.convert("RGBA")
+    arr = np.array(rgba, dtype=np.float32)
+    alpha = arr[:, :, 3]
+    h, w = alpha.shape
+
+    # 不透明蒙版：alpha >= 250 视为完全不透明
+    opaque_mask = alpha >= 250.0
+    # 半透明蒙版：需要去污的区域
+    semi_mask = (alpha > 0) & (alpha < 250.0)
+
+    if not np.any(semi_mask):
+        return image
+
+    # 为不透明像素建立颜色场，然后用 box blur 扩散到半透明区域
+    weight_map = opaque_mask.astype(np.uint8) * 255
+    color_sum = np.zeros((h, w, 3), dtype=np.uint8)
+    color_sum[opaque_mask] = np.clip(arr[opaque_mask, :3], 0, 255).astype(np.uint8)
+
+    # 多次 box blur 迭代实现扩散；Pillow 的 BoxBlur 不支持 F 模式，使用 L 模式再转回 float 归一化
+    blur_radius = max(1, radius)
+    iterations = max(1, radius)
+
+    weight_img = Image.fromarray(weight_map, mode="L")
+    r_img = Image.fromarray(color_sum[:, :, 0], mode="L")
+    g_img = Image.fromarray(color_sum[:, :, 1], mode="L")
+    b_img = Image.fromarray(color_sum[:, :, 2], mode="L")
+
+    box_filter = ImageFilter.BoxBlur(blur_radius)
+    for _ in range(iterations):
+        weight_img = weight_img.filter(box_filter)
+        r_img = r_img.filter(box_filter)
+        g_img = g_img.filter(box_filter)
+        b_img = b_img.filter(box_filter)
+
+    weight_arr = np.array(weight_img, dtype=np.float32) / 255.0
+    filled_r = np.array(r_img, dtype=np.float32) / 255.0
+    filled_g = np.array(g_img, dtype=np.float32) / 255.0
+    filled_b = np.array(b_img, dtype=np.float32) / 255.0
+
+    # 归一化
+    safe_weight = np.maximum(weight_arr, 1e-6)
+    filled_r = (filled_r / safe_weight) * 255.0
+    filled_g = (filled_g / safe_weight) * 255.0
+    filled_b = (filled_b / safe_weight) * 255.0
+
+    # 只替换半透明像素的 RGB，越透明替换越强
+    blend = strength * (1.0 - alpha[semi_mask] / 250.0)
+    blend = np.clip(blend, 0.0, 1.0)
+
+    arr[semi_mask, 0] = arr[semi_mask, 0] * (1.0 - blend) + filled_r[semi_mask] * blend
+    arr[semi_mask, 1] = arr[semi_mask, 1] * (1.0 - blend) + filled_g[semi_mask] * blend
+    arr[semi_mask, 2] = arr[semi_mask, 2] * (1.0 - blend) + filled_b[semi_mask] * blend
+
+    result = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGBA")
+    return result
+
+
 def apply_matte_pipeline(
     raw_images: list[Image.Image],
     chroma_enabled: bool,
@@ -1554,6 +1082,10 @@ def apply_matte_pipeline(
     sf_alpha_cutoff: int = 8,
     sf_spill_removal: bool = True,
     sf_spill_strength: float = 0.45,
+    decontaminate_enabled: bool = True,
+    decontaminate_radius: int = 2,
+    decontaminate_strength: float = 1.0,
+    pipeline: list[str] | None = None,
 ) -> tuple[list[Image.Image], tuple[int, int, int], dict]:
     if not raw_images:
         raise ValueError("no frames to matte")
@@ -1588,14 +1120,101 @@ def apply_matte_pipeline(
         "sf_alpha_cutoff": max(0, min(255, int(sf_alpha_cutoff))),
         "sf_spill_removal": bool(sf_spill_removal),
         "sf_spill_strength": min(1.0, max(0.0, float(sf_spill_strength if sf_spill_strength is not None else 0.45))),
+        "decontaminate_enabled": bool(decontaminate_enabled),
+        "decontaminate_radius": max(1, min(8, int(decontaminate_radius))),
+        "decontaminate_strength": max(0.0, min(1.0, float(decontaminate_strength))),
     }
     mode_uses_corridorkey = mode in {"corridorkey", "birefnet_corridorkey", "birefnet_luma_corridorkey"}
     use_corridorkey = bool((corridorkey_enabled or mode_uses_corridorkey) and mode != "none")
     resolved_corridorkey_screen = resolve_corridorkey_screen(corridorkey_screen, key_rgb)
 
-    if mode == "none":
+    if mode == "none" and not pipeline:
         return raw_images, key_rgb, matte_info
 
+    # 新管线路径：pipeline 非空时走 alpha 合并逻辑
+    if pipeline and len(pipeline) > 0:
+        matte_info["mode"] = "+".join(pipeline)
+        matte_info["pipeline"] = list(pipeline)
+        keyed_frames: list[Image.Image] = []
+        ai_info: dict | None = None
+        corridor_info: dict | None = None
+        pipe_has_corridorkey = "corridorkey" in pipeline
+
+        for raw_image in raw_images:
+            accumulated_alpha: Image.Image | None = None
+            for step_mode in pipeline:
+                step_alpha: Image.Image | None = None
+                if step_mode == "birefnet":
+                    step_alpha, ai_info = birefnet_alpha_mask(raw_image, ai_model, ai_device, ai_resolution)
+                elif step_mode == "luma":
+                    step_alpha = luminance_alpha_mask(
+                        raw_image,
+                        matte_info["luma_black"],
+                        max(matte_info["luma_black"] + 1, matte_info["luma_white"]),
+                        matte_info["luma_gamma"],
+                        matte_info["luma_strength"],
+                        key_rgb=key_rgb,
+                    )
+                elif step_mode == "chroma":
+                    chroma_result = chroma_key_frame(
+                        image=raw_image,
+                        key_rgb=key_rgb,
+                        threshold=threshold,
+                        softness=softness,
+                        despill_strength=0.0,
+                        halo_pixels=0,
+                    )
+                    step_alpha = chroma_result.getchannel("A")
+                elif step_mode == "spriteflow":
+                    sf_result = spriteflow_key_frame(
+                        raw_image.convert("RGBA"),
+                        key_rgb,
+                        matte_info["sf_tolerance"],
+                        matte_info["sf_edge_blend"],
+                        matte_info["sf_blend_zone_ratio"],
+                        matte_info["sf_alpha_cutoff"],
+                        matte_info["sf_spill_removal"],
+                        matte_info["sf_spill_strength"],
+                    )
+                    step_alpha = sf_result.getchannel("A")
+                elif step_mode == "corridorkey":
+                    # corridorkey 需要一个初始 alpha 做输入；用当前累积的或全白
+                    base_alpha = accumulated_alpha if accumulated_alpha else Image.new("L", raw_image.size, 255)
+                    refined_frame, corridor_info = corridorkey_refine_frame(
+                        raw_image, base_alpha, ai_device, resolved_corridorkey_screen, matte_info["despill_strength"]
+                    )
+                    step_alpha = refined_frame.getchannel("A")
+
+                if step_alpha is not None:
+                    accumulated_alpha = ImageChops.lighter(accumulated_alpha, step_alpha) if accumulated_alpha else step_alpha
+
+            if accumulated_alpha is None:
+                keyed_frames.append(raw_image.copy())
+                continue
+
+            # 应用 halo_pixels MinFilter
+            if matte_info["halo_pixels"] > 0:
+                filter_size = (matte_info["halo_pixels"] * 2) + 1
+                accumulated_alpha = accumulated_alpha.filter(ImageFilter.MinFilter(filter_size))
+
+            # 最终合成：corridorkey 已产生完整帧；否则用 alpha mask + despill
+            if pipe_has_corridorkey and corridor_info:
+                # corridorkey_refine_frame 的结果已有 despill，直接用最终 alpha
+                keyed_frame = apply_alpha_mask(raw_image, accumulated_alpha)
+            else:
+                keyed_frame = apply_alpha_mask(raw_image, accumulated_alpha)
+                keyed_frame = despill_alpha_edges(keyed_frame, key_rgb, matte_info["despill_strength"])
+            keyed_frames.append(keyed_frame)
+
+        if ai_info:
+            matte_info.update(ai_info)
+        if corridor_info:
+            matte_info.update(corridor_info)
+        if matte_info["decontaminate_enabled"]:
+            keyed_frames = [edge_decontaminate(f, matte_info["decontaminate_radius"], matte_info["decontaminate_strength"]) for f in keyed_frames]
+        return keyed_frames, key_rgb, matte_info
+
+    # 以下为旧单模式兼容路径
     if mode in {"chroma", "corridorkey"}:
         keyed_frames = []
         corridor_info: dict | None = None
@@ -1621,6 +1240,8 @@ def apply_matte_pipeline(
                 keyed_frames.append(chroma_frame)
         if corridor_info:
             matte_info.update(corridor_info)
+        if matte_info["decontaminate_enabled"]:
+            keyed_frames = [edge_decontaminate(f, matte_info["decontaminate_radius"], matte_info["decontaminate_strength"]) for f in keyed_frames]
         return keyed_frames, key_rgb, matte_info
 
     if mode == "spriteflow":
@@ -1641,6 +1262,8 @@ def apply_matte_pipeline(
                 eroded = keyed_frame.getchannel("A").filter(ImageFilter.MinFilter(filter_size))
                 keyed_frame.putalpha(eroded)
             keyed_frames.append(keyed_frame)
+        if matte_info["decontaminate_enabled"]:
+            keyed_frames = [edge_decontaminate(f, matte_info["decontaminate_radius"], matte_info["decontaminate_strength"]) for f in keyed_frames]
         return keyed_frames, key_rgb, matte_info
 
     if mode == "luma":
@@ -1660,6 +1283,8 @@ def apply_matte_pipeline(
             keyed_frame = apply_alpha_mask(raw_image, alpha)
             keyed_frame = despill_alpha_edges(keyed_frame, key_rgb, matte_info["despill_strength"])
             keyed_frames.append(keyed_frame)
+        if matte_info["decontaminate_enabled"]:
+            keyed_frames = [edge_decontaminate(f, matte_info["decontaminate_radius"], matte_info["decontaminate_strength"]) for f in keyed_frames]
         return keyed_frames, key_rgb, matte_info
 
     keyed_frames: list[Image.Image] = []
@@ -1699,6 +1324,8 @@ def apply_matte_pipeline(
         matte_info.update(ai_info)
     if corridor_info:
         matte_info.update(corridor_info)
+    if matte_info["decontaminate_enabled"]:
+        keyed_frames = [edge_decontaminate(f, matte_info["decontaminate_radius"], matte_info["decontaminate_strength"]) for f in keyed_frames]
     return keyed_frames, key_rgb, matte_info
 
 
@@ -1770,38 +1397,6 @@ def stable_resize_frames(
     return rendered, bboxes, scale, canvas_size
 
 
-def job_dir(job_id: str) -> Path:
-    return JOBS_DIR / job_id
-
-
-def job_manifest_path(job_id: str) -> Path:
-    return job_dir(job_id) / "manifest.json"
-
-
-def save_job_manifest(job_id: str, payload: dict) -> None:
-    path = job_manifest_path(job_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def load_job_manifest(job_id: str) -> dict:
-    path = job_manifest_path(job_id)
-    if not path.exists():
-        raise FileNotFoundError(f"job not found: {job_id}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def job_raw_frame_path(raw_dir: Path, frame_index: int) -> Path:
-    candidates = [
-        raw_dir / f"frame_{frame_index + 1:05d}.png",
-        raw_dir / f"frame_{frame_index + 1:03d}.png",
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-    raise FileNotFoundError(f"raw frame not found: {frame_index + 1}")
-
-
 def rematte_job_frames(
     job_id: str,
     frame_indices: list[int],
@@ -1834,6 +1429,10 @@ def rematte_job_frames(
     sf_alpha_cutoff: int = 8,
     sf_spill_removal: bool = True,
     sf_spill_strength: float = 0.45,
+    decontaminate_enabled: bool = True,
+    decontaminate_radius: int = 2,
+    decontaminate_strength: float = 1.0,
+    pipeline: list[str] | None = None,
 ) -> dict:
     manifest = load_job_manifest(job_id)
     frames = manifest.get("frames") or []
@@ -1881,6 +1480,10 @@ def rematte_job_frames(
             sf_alpha_cutoff=sf_alpha_cutoff,
             sf_spill_removal=sf_spill_removal,
             sf_spill_strength=sf_spill_strength,
+            decontaminate_enabled=decontaminate_enabled,
+            decontaminate_radius=decontaminate_radius,
+            decontaminate_strength=decontaminate_strength,
+            pipeline=pipeline,
         )
         rendered_frames, bboxes, scale, canvas_size = stable_resize_frames(
             keyed_frames,
@@ -2146,6 +1749,10 @@ def process_video_to_job(
     sf_alpha_cutoff: int = 8,
     sf_spill_removal: bool = True,
     sf_spill_strength: float = 0.45,
+    decontaminate_enabled: bool = True,
+    decontaminate_radius: int = 2,
+    decontaminate_strength: float = 1.0,
+    pipeline: list[str] | None = None,
     task_id: str = "",
 ) -> dict:
     update_task_progress(task_id, 8, "读取素材信息。")
@@ -2206,6 +1813,10 @@ def process_video_to_job(
         sf_alpha_cutoff=sf_alpha_cutoff,
         sf_spill_removal=sf_spill_removal,
         sf_spill_strength=sf_spill_strength,
+        decontaminate_enabled=decontaminate_enabled,
+        decontaminate_radius=decontaminate_radius,
+        decontaminate_strength=decontaminate_strength,
+        pipeline=pipeline,
     )
 
     update_task_progress(task_id, 64, "稳定裁切并缩放帧。")
@@ -2300,26 +1911,6 @@ def process_video_to_job(
     save_job_manifest(job_id, manifest)
     update_task_progress(task_id, 98, f"处理完成，共 {len(frame_entries)} 帧。")
     return manifest
-
-
-def preview_dir(preview_id: str) -> Path:
-    return PREVIEWS_DIR / preview_id
-
-
-def load_preview_manifest(preview_id: str) -> dict:
-    preview_id = str(preview_id or "").strip()
-    if not preview_id or Path(preview_id).name != preview_id:
-        raise ValueError("invalid preview id")
-    path = preview_dir(preview_id) / "preview.json"
-    if not path.exists():
-        raise FileNotFoundError(f"preview not found: {preview_id}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def save_preview_manifest(preview_id: str, manifest: dict) -> None:
-    root = preview_dir(preview_id)
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "preview.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def green_to_black_image(
@@ -2511,6 +2102,10 @@ def preview_frame(
     sf_alpha_cutoff: int = 8,
     sf_spill_removal: bool = True,
     sf_spill_strength: float = 0.45,
+    decontaminate_enabled: bool = True,
+    decontaminate_radius: int = 2,
+    decontaminate_strength: float = 1.0,
+    pipeline: list[str] | None = None,
 ) -> dict:
     source_path, media_type = source_media_entry(upload_id)
     info = media_info(source_path, media_type)
@@ -2559,6 +2154,10 @@ def preview_frame(
         sf_alpha_cutoff=sf_alpha_cutoff,
         sf_spill_removal=sf_spill_removal,
         sf_spill_strength=sf_spill_strength,
+        decontaminate_enabled=decontaminate_enabled,
+        decontaminate_radius=decontaminate_radius,
+        decontaminate_strength=decontaminate_strength,
+        pipeline=pipeline,
     )
     keyed_image = keyed_frames[0]
 
@@ -2883,95 +2482,6 @@ def save_alpha_mov(
         )
     finally:
         shutil.rmtree(video_frames_dir, ignore_errors=True)
-
-
-def append_task_log(task_id: str, message: str) -> None:
-    if not task_id:
-        return
-    with TASKS_LOCK:
-        task = TASKS.get(task_id)
-        if not task:
-            return
-        logs = task.setdefault("logs", [])
-        logs.append(f"[{datetime.now():%H:%M:%S}] {message}")
-        if len(logs) > 200:
-            del logs[:-200]
-        task["updated_at"] = iso_now()
-
-
-def run_background_task(label: str, target, *args, **kwargs) -> dict:
-    task_id = timestamped_id()
-    start_message = f"{label}已开始。"
-    with TASKS_LOCK:
-        TASKS[task_id] = {
-            "task_id": task_id,
-            "label": label,
-            "status": "running",
-            "progress": 5,
-            "message": start_message,
-            "logs": [f"[{datetime.now():%H:%M:%S}] {start_message}"],
-            "result": None,
-            "error": None,
-            "created_at": iso_now(),
-            "updated_at": iso_now(),
-        }
-
-    def worker() -> None:
-        update_task_progress(task_id, 10, f"{label}处理中。")
-        try:
-            if "task_id" not in kwargs:
-                kwargs["task_id"] = task_id
-            result = target(*args, **kwargs)
-            append_task_log(task_id, f"{label}已完成。")
-            with TASKS_LOCK:
-                task = TASKS[task_id]
-                task.update({
-                    "status": "completed",
-                    "progress": 100,
-                    "message": f"{label}已完成。",
-                    "result": result,
-                    "updated_at": iso_now(),
-                })
-        except Exception as exc:
-            append_task_log(task_id, f"{label}失败：{exc}")
-            with TASKS_LOCK:
-                task = TASKS[task_id]
-                task.update({
-                    "status": "failed",
-                    "progress": 100,
-                    "message": f"{label}失败。",
-                    "error": str(exc),
-                    "updated_at": iso_now(),
-                })
-
-    threading.Thread(target=worker, daemon=True).start()
-    return task_progress_payload(task_id)
-
-
-def update_task_progress(task_id: str, progress: int, message: str) -> None:
-    if not task_id:
-        return
-    with TASKS_LOCK:
-        task = TASKS.get(task_id)
-        if not task or task.get("status") != "running":
-            return
-        task["progress"] = clamp_int(progress, 0, 99)
-        task["message"] = message
-        logs = task.setdefault("logs", [])
-        logs.append(f"[{datetime.now():%H:%M:%S}] {message}")
-        if len(logs) > 200:
-            del logs[:-200]
-        task["updated_at"] = iso_now()
-
-
-def task_progress_payload(task_id: str) -> dict:
-    with TASKS_LOCK:
-        task = TASKS.get(task_id)
-        if not task:
-            raise FileNotFoundError(f"task not found: {task_id}")
-        payload = dict(task)
-        payload["logs"] = list(task.get("logs") or [])
-        return payload
 
 
 def normalize_export_compression(compression: dict | None) -> dict:
@@ -3503,27 +3013,16 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path == "/api/app-version":
-            self.send_json(
-                {
-                    "ok": True,
-                    "version": current_app_version(),
-                    "poll_ms": APP_VERSION_POLL_MS,
-                }
-            )
+        # Try the route registry first (sprite_lab.routes). Routes that have
+        # been migrated will be dispatched here; legacy if/elif handles the
+        # rest until they get migrated too.
+        if _routes.dispatch_get(self, parsed):
             return
         if parsed.path == "/api/env/check":
             self.send_json({"ok": True, **env_check_payload()})
             return
         if parsed.path == "/api/models/status":
             self.send_json({"ok": True, **model_status_payload()})
-            return
-        if parsed.path.startswith("/api/tasks/"):
-            task_id = parsed.path.removeprefix("/api/tasks/").strip("/")
-            try:
-                self.send_json({"ok": True, "task": task_progress_payload(task_id)})
-            except FileNotFoundError as exc:
-                self.send_error_json(str(exc), status=HTTPStatus.NOT_FOUND)
             return
         if parsed.path == "/":
             self.serve_dist_file(DIST_DIR / "index.html", content_type="text/html; charset=utf-8")
@@ -3545,66 +3044,31 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         try:
-            if parsed.path == "/api/env/install":
-                self.send_json({"ok": True, **install_missing_env_packages()})
+            # dev-only：把 PNG 二进制直接写到 work/_psd_test/ 下，供 MCP 自动化复测使用。
+            # 严格白名单：只允许 work/_psd_test/ 内、.png 后缀；防滥用。
+            if parsed.path == "/api/dev-canvas":
+                target_rel = parse_qs(parsed.query).get("path", [""])[0]
+                if not target_rel.startswith("work/_psd_test/") or not target_rel.endswith(".png"):
+                    self.send_json({"ok": False, "error": "path 必须落在 work/_psd_test/*.png"}, status=400)
+                    return
+                length = int(self.headers.get("Content-Length") or 0)
+                if length <= 0 or length > 50 * 1024 * 1024:
+                    self.send_json({"ok": False, "error": "missing or oversize body"}, status=400)
+                    return
+                data = self.rfile.read(length)
+                full = (Path(__file__).parent / target_rel).resolve()
+                # 二次检查：解析后仍在 work/_psd_test/ 下，防 ../ 穿越
+                root = (Path(__file__).parent / "work" / "_psd_test").resolve()
+                if root not in full.parents:
+                    self.send_json({"ok": False, "error": "path 越界"}, status=400)
+                    return
+                full.parent.mkdir(parents=True, exist_ok=True)
+                full.write_bytes(data)
+                self.send_json({"ok": True, "path": target_rel, "bytes": len(data)})
                 return
-            if parsed.path == "/api/env/install-corridorkey":
-                task = run_background_task("安装 CorridorKey", install_corridorkey)
-                self.send_json({"ok": True, "task": task})
-                return
-            if parsed.path == "/api/models/download":
-                payload = self.read_json_body()
-                model_key = normalize_ai_model_key(str(payload.get("model_key") or DEFAULT_AI_MATTE_MODEL))
-                task = run_background_task(
-                    f"下载 {AI_MATTE_MODEL_LABELS.get(model_key, model_key)}",
-                    install_model_from_download,
-                    model_key,
-                )
-                self.send_json({"ok": True, "task": task})
-                return
-            if parsed.path == "/api/import-path":
-                payload = self.read_json_body()
-                raw_path = str(payload.get("path") or "").strip().strip("\"'")
-                result = register_video_from_path(Path(raw_path))
-                self.send_json({"ok": True, "upload": result})
-                return
-            if parsed.path == "/api/upload":
-                if cgi is None:
-                    length = int(self.headers.get("Content-Length", "0") or "0")
-                    file_item = parse_multipart_upload(self.headers, self.rfile.read(length), "video")
-                else:
-                    form = cgi.FieldStorage(
-                        fp=self.rfile,
-                        headers=self.headers,
-                        environ={
-                            "REQUEST_METHOD": "POST",
-                            "CONTENT_TYPE": self.headers.get("Content-Type", ""),
-                            "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
-                        },
-                    )
-                    file_item = form["video"] if "video" in form else None
-                if file_item is None or not getattr(file_item, "file", None):
-                    raise ValueError("media file missing")
-                result = register_uploaded_file(file_item)
-                self.send_json({"ok": True, "upload": result})
-                return
-            if parsed.path == "/api/import-animation":
-                if cgi is None:
-                    body = self.rfile.read(int(self.headers.get("Content-Length", "0") or 0))
-                    file_items = parse_multipart_uploads(self.headers, body, "frames")
-                else:
-                    form = cgi.FieldStorage(
-                        fp=self.rfile,
-                        headers=self.headers,
-                        environ={
-                            "REQUEST_METHOD": "POST",
-                            "CONTENT_TYPE": self.headers.get("Content-Type", ""),
-                            "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
-                        },
-                    )
-                    file_items = field_storage_items(form, "frames")
-                result = import_animation_frames_to_job(file_items)
-                self.send_json({"ok": True, "job": result})
+            # Try the route registry first; falls through to the legacy
+            # if/elif chain when the route hasn't been migrated yet.
+            if _routes.dispatch_post(self, parsed):
                 return
             if parsed.path == "/api/process":
                 payload = self.read_json_body()
@@ -3618,6 +3082,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     "canvas_mode": normalize_canvas_mode(str(payload.get("canvas_mode") or "auto")),
                     "chroma_enabled": bool(payload.get("chroma_enabled", True)),
                     "matte_mode": str(payload.get("matte_mode") or ""),
+                    "pipeline": normalize_matte_pipeline(payload),
                     "key_mode": str(payload.get("key_mode") or "auto"),
                     "manual_key_hex": str(payload.get("manual_key_hex") or "#00FF00"),
                     "threshold": max(0, safe_int(payload.get("threshold"), 80)),
@@ -3642,6 +3107,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     "sf_alpha_cutoff": max(0, min(255, safe_int(payload.get("sf_alpha_cutoff"), 8))),
                     "sf_spill_removal": bool(payload.get("sf_spill_removal", True)),
                     "sf_spill_strength": max(0.0, min(1.0, safe_float(payload.get("sf_spill_strength"), 0.45))),
+                    "decontaminate_enabled": bool(payload.get("decontaminate_enabled", True)),
+                    "decontaminate_radius": max(1, min(8, safe_int(payload.get("decontaminate_radius"), 2))),
+                    "decontaminate_strength": max(0.0, min(1.0, safe_float(payload.get("decontaminate_strength"), 1.0))),
                 }
                 if bool(payload.get("async", False)):
                     task = run_background_task("批量处理素材", process_video_to_job, **process_kwargs)
@@ -3660,6 +3128,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     canvas_mode=normalize_canvas_mode(str(payload.get("canvas_mode") or "auto")),
                     chroma_enabled=bool(payload.get("chroma_enabled", True)),
                     matte_mode=str(payload.get("matte_mode") or ""),
+                    pipeline=normalize_matte_pipeline(payload),
                     key_mode=str(payload.get("key_mode") or "auto"),
                     manual_key_hex=str(payload.get("manual_key_hex") or "#00FF00"),
                     threshold=max(0, safe_int(payload.get("threshold"), 80)),
@@ -3684,36 +3153,11 @@ class AppHandler(BaseHTTPRequestHandler):
                     sf_alpha_cutoff=max(0, min(255, safe_int(payload.get("sf_alpha_cutoff"), 8))),
                     sf_spill_removal=bool(payload.get("sf_spill_removal", True)),
                     sf_spill_strength=max(0.0, min(1.0, safe_float(payload.get("sf_spill_strength"), 0.45))),
+                    decontaminate_enabled=bool(payload.get("decontaminate_enabled", True)),
+                    decontaminate_radius=max(1, min(8, safe_int(payload.get("decontaminate_radius"), 2))),
+                    decontaminate_strength=max(0.0, min(1.0, safe_float(payload.get("decontaminate_strength"), 1.0))),
                 )
                 self.send_json({"ok": True, "job": result})
-                return
-            if parsed.path == "/api/job/smart-select":
-                payload = self.read_json_body()
-                result = suggest_job_frames(
-                    job_id=str(payload.get("job_id") or ""),
-                    target_count=safe_int(payload.get("target_count"), 12),
-                )
-                self.send_json({"ok": True, **result})
-                return
-            if parsed.path == "/api/pose-detect":
-                payload = self.read_json_body()
-                data_url = str(payload.get("image_data_url") or "").strip()
-                if data_url:
-                    image = decode_data_url_image(data_url)
-                else:
-                    upload_id = str(payload.get("upload_id") or "").strip()
-                    if not upload_id:
-                        raise ValueError("pose-detect 需要 image_data_url 或 upload_id")
-                    path, media_type = source_media_entry(upload_id)
-                    if not str(media_type).startswith("image"):
-                        raise ValueError("pose-detect 仅支持图片来源；视频请先取帧后传 image_data_url")
-                    image = open_rgba_image(path)
-                result = detect_pose_keypoints(image)
-                self.send_json({"ok": True, **result})
-                return
-            if parsed.path == "/api/models/download-pose":
-                task = run_background_task(POSE_MODEL_LABEL, install_pose_model_from_download)
-                self.send_json({"ok": True, "task": task})
                 return
             if parsed.path == "/api/preview-frame":
                 payload = self.read_json_body()
@@ -3725,6 +3169,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     canvas_mode=normalize_canvas_mode(str(payload.get("canvas_mode") or "auto")),
                     chroma_enabled=bool(payload.get("chroma_enabled", True)),
                     matte_mode=str(payload.get("matte_mode") or ""),
+                    pipeline=normalize_matte_pipeline(payload),
                     key_mode=str(payload.get("key_mode") or "auto"),
                     manual_key_hex=str(payload.get("manual_key_hex") or "#00FF00"),
                     threshold=max(0, safe_int(payload.get("threshold"), 80)),
@@ -3749,59 +3194,11 @@ class AppHandler(BaseHTTPRequestHandler):
                     sf_alpha_cutoff=max(0, min(255, safe_int(payload.get("sf_alpha_cutoff"), 8))),
                     sf_spill_removal=bool(payload.get("sf_spill_removal", True)),
                     sf_spill_strength=max(0.0, min(1.0, safe_float(payload.get("sf_spill_strength"), 0.45))),
+                    decontaminate_enabled=bool(payload.get("decontaminate_enabled", True)),
+                    decontaminate_radius=max(1, min(8, safe_int(payload.get("decontaminate_radius"), 2))),
+                    decontaminate_strength=max(0.0, min(1.0, safe_float(payload.get("decontaminate_strength"), 1.0))),
                 )
                 self.send_json({"ok": True, "preview": result})
-                return
-            if parsed.path == "/api/save-preview":
-                payload = self.read_json_body()
-                result = save_preview_as_job(str(payload.get("preview_id") or ""))
-                self.send_json({"ok": True, "job": result})
-                return
-            if parsed.path == "/api/preview-green-to-black":
-                payload = self.read_json_body()
-                result = green_to_black_preview(
-                    str(payload.get("preview_id") or ""),
-                    threshold=max(0, min(255, safe_int(payload.get("threshold"), 42))),
-                    dominance=max(0, min(255, safe_int(payload.get("dominance"), 24))),
-                )
-                self.send_json({"ok": True, "preview": result})
-                return
-            if parsed.path == "/api/preview-semitransparent-to-black":
-                payload = self.read_json_body()
-                result = semitransparent_to_black_preview(
-                    str(payload.get("preview_id") or ""),
-                    alpha_min=max(0, min(255, safe_int(payload.get("alpha_min"), 1))),
-                    alpha_max=max(0, min(255, safe_int(payload.get("alpha_max"), 254))),
-                )
-                self.send_json({"ok": True, "preview": result})
-                return
-            if parsed.path == "/api/preview-semitransparent-to-opaque":
-                payload = self.read_json_body()
-                result = semitransparent_to_opaque_preview(
-                    str(payload.get("preview_id") or ""),
-                    alpha_min=max(0, min(255, safe_int(payload.get("alpha_min"), 1))),
-                    alpha_max=max(0, min(255, safe_int(payload.get("alpha_max"), 254))),
-                )
-                self.send_json({"ok": True, "preview": result})
-                return
-            if parsed.path == "/api/export":
-                payload = self.read_json_body()
-                result = export_job(
-                    job_id=str(payload.get("job_id") or ""),
-                    selected_indices=[safe_int(value, -1) for value in (payload.get("selected_indices") or [])],
-                    sheet_columns=max(1, safe_int(payload.get("sheet_columns"), 4)),
-                    video_duration_ms=safe_int(payload.get("video_duration_ms"), 100),
-                    compression=payload.get("compression"),
-                )
-                self.send_json({"ok": True, "export": result})
-                return
-            if parsed.path == "/api/open-path":
-                payload = self.read_json_body()
-                target = Path(str(payload.get("path") or "").strip()).expanduser().resolve()
-                if not target.exists():
-                    raise FileNotFoundError(target)
-                open_path_in_file_browser(target)
-                self.send_json({"ok": True})
                 return
         except FileNotFoundError as exc:
             self.send_error_json(str(exc), status=HTTPStatus.NOT_FOUND)

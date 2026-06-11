@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Animation, AttachmentImage, BoneNode, Keyframe, KeyframeChannel, Skeleton, Slot } from "../model/skeletonModel";
 import { LIMB_LENGTH_PAD } from "../model/poseToParts";
 
-const UPRIGHT_ATTACHMENT_NAMES = new Set(["head", "torso", "body"]);
+const UPRIGHT_ATTACHMENT_NAMES = new Set(["head", "torso", "body", "chest", "waist", "eyeL", "eyeR", "mouth"]);
 
 // 与 StageRig 对齐的"按骨骼长度缩放贴图"逻辑，避免预览里贴图按原始像素绘制把人画成一坨。
 // 注意：带 sourceRect 的 PSD 服饰图层不能按四肢长度压缩，需要按画布 letterbox 同比缩放（外部传入 psdScale）。

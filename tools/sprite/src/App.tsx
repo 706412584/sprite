@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppProvider, useAppState, useAppActions } from "@/state/AppContext";
 import { RuntimePanel } from "@/features/settings/RuntimePanel";
 import { SpriteFlowPanel } from "@/spriteflow/SpriteFlowPanel";
@@ -16,8 +16,8 @@ type WorkspaceTab = "workflow" | "smart-slice" | "bone-anim" | "spriteflow" | "q
 const tabs: Array<{ key: WorkspaceTab; label: string }> = [
   { key: "workflow", label: "制作流水线" },
   { key: "smart-slice", label: "UI 智能切片" },
-  { key: "bone-anim", label: "骨骼动画制作" },
-  { key: "spriteflow", label: "SpriteFlow" },
+  { key: "bone-anim", label: "骨骼动画" },
+  { key: "spriteflow", label: "SpriteFlow 角色序列帧" },
   { key: "quantize", label: "像素量化" },
   { key: "nine-slice", label: "9-slice 编辑器" },
   { key: "pixel-font", label: "像素字体" },
@@ -27,9 +27,23 @@ const tabs: Array<{ key: WorkspaceTab; label: string }> = [
 ];
 
 function AppInner() {
-  const { desktopApi, runtime, version, message, busy } = useAppState();
-  const { restartServer } = useAppActions();
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("workflow");
+  const { desktopApi, runtime, version, message, busy, canCancelTask } = useAppState();
+  const { restartServer, cancelCurrentTask } = useAppActions();
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => {
+    // 初始化时按 hash 选 tab，外链 / MCP 直接跳转 #bone-anim 等也能命中。
+    const fromHash = (typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "") as WorkspaceTab;
+    return tabs.some((t) => t.key === fromHash) ? fromHash : "workflow";
+  });
+
+  // hashchange：浏览器后退 / 用户手动改 URL 也能切 tab。
+  useEffect(() => {
+    function onHash() {
+      const k = window.location.hash.replace(/^#/, "") as WorkspaceTab;
+      if (tabs.some((t) => t.key === k)) setActiveTab(k);
+    }
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   const pythonConnected = desktopApi ? Boolean(runtime?.serverRunning) : version !== "Python 服务未连接";
 
@@ -41,7 +55,7 @@ function AppInner() {
           <span className="brand-mark">SVL</span>
           <div>
             <h1>Sprite Video Lab</h1>
-            <p>AI 动画特效工具</p>
+            <p>角色动画、UI 切片与序列帧制作工具</p>
           </div>
         </div>
         <nav className="nav-list">
@@ -71,6 +85,9 @@ function AppInner() {
             <p>{busy ? "处理中…" : message}</p>
           </div>
           <div className="topbar-actions">
+            {canCancelTask && (
+              <button onClick={cancelCurrentTask}>取消任务</button>
+            )}
             <button onClick={restartServer} disabled={!desktopApi || busy}>重启 Python</button>
           </div>
         </header>

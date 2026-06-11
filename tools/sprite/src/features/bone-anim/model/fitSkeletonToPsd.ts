@@ -143,6 +143,40 @@ function normalizeDegValue(deg: number): number {
   return value;
 }
 
+function centerOfRects(rects: Array<{ minX: number; minY: number; maxX: number; maxY: number }>, fallback: Pt): Pt {
+  const r = unionRects(rects);
+  return r ? { x: (r.minX + r.maxX) / 2, y: (r.minY + r.maxY) / 2 } : fallback;
+}
+
+function pushChildRewrite(
+  rewrites: BoneRewrite[],
+  name: string,
+  parentName: string,
+  joint: Pt,
+  tip: Pt,
+  minLength = 8,
+): BoneRewrite | null {
+  const parent = rewrites.find((r) => r.name === parentName);
+  if (!parent) return null;
+  const local = worldToLocalBone({ joint, tip }, parent.worldJoint, parent.worldRotDeg);
+  const rewrite: BoneRewrite = {
+    name,
+    parentName,
+    localX: local.x,
+    localY: local.y,
+    rotation: local.rotation,
+    length: Math.max(minLength, local.length),
+    worldJoint: joint,
+    worldRotDeg: parent.worldRotDeg + local.rotation,
+  };
+  rewrites.push(rewrite);
+  return rewrite;
+}
+
+function isUprightBone(name: string): boolean {
+  return ["head", "torso", "body", "chest", "waist", "eyeL", "eyeR", "mouth"].includes(name);
+}
+
 /**
  * 根据当前 skeleton 的 PSD slot 绑定关系，把 humanoid 各骨的 setup pose 重写到 PSD 实际位置。
  *
@@ -194,10 +228,22 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
 
   // —— 计算各身体部位 PSD 像素空间的关键点 ——
   const allBbox = unionRects(psdSamples.map((p) => p.rect));
-  const headRects = psdRectsByBoneName.get("head") ?? [];
-  const topwearRects = psdSamples.filter((p) => p.boneName === "torso" && /topwear|torso|body|chest|coat|robe|dress/i.test(p.name)).map((p) => p.rect);
-  const bottomwearRects = psdSamples.filter((p) => p.boneName === "torso" && /bottomwear|skirt|belt|waist/i.test(p.name)).map((p) => p.rect);
-  const torsoRects = psdRectsByBoneName.get("torso") ?? [];
+  const headRects = [
+    ...(psdRectsByBoneName.get("head") ?? []),
+    ...(psdRectsByBoneName.get("hairFront") ?? []),
+    ...(psdRectsByBoneName.get("hairBack") ?? []),
+    ...(psdRectsByBoneName.get("eyeL") ?? []),
+    ...(psdRectsByBoneName.get("eyeR") ?? []),
+    ...(psdRectsByBoneName.get("mouth") ?? []),
+  ];
+  const topwearRects = psdSamples.filter((p) => ["torso", "chest"].includes(p.boneName) && /topwear|torso|body|chest|coat|robe|dress/i.test(p.name)).map((p) => p.rect);
+  const bottomwearRects = psdSamples.filter((p) => ["torso", "waist", "skirt"].includes(p.boneName) && /bottomwear|skirt|belt|waist/i.test(p.name)).map((p) => p.rect);
+  const torsoRects = [
+    ...(psdRectsByBoneName.get("torso") ?? []),
+    ...(psdRectsByBoneName.get("chest") ?? []),
+    ...(psdRectsByBoneName.get("waist") ?? []),
+    ...(psdRectsByBoneName.get("skirt") ?? []),
+  ];
   const headBbox = unionRects(headRects);
   const topwearBbox = unionRects(topwearRects);
   const bottomwearBbox = unionRects(bottomwearRects);
@@ -221,16 +267,20 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
   const headTipPsd: Pt = { x: headCenter.x, y: headCenter.y - headHeight * 0.35 };
 
   // 四肢端点（手/脚），缺失时回退到合理对称位置
-  const handLPsd = psdCentersByBoneName.get("forearmL")?.length
-    ? avg(psdCentersByBoneName.get("forearmL")!)
-    : { x: torsoCenterX + shoulderHalfWidth * 1.6, y: shoulderY + (hipY - shoulderY) * 0.6 };
-  const handRPsd = psdCentersByBoneName.get("forearmR")?.length
-    ? avg(psdCentersByBoneName.get("forearmR")!)
-    : { x: torsoCenterX - shoulderHalfWidth * 1.6, y: shoulderY + (hipY - shoulderY) * 0.6 };
+  const handLPsd = psdCentersByBoneName.get("handL")?.length
+    ? avg(psdCentersByBoneName.get("handL")!)
+    : psdCentersByBoneName.get("forearmL")?.length
+      ? avg(psdCentersByBoneName.get("forearmL")!)
+      : { x: torsoCenterX + shoulderHalfWidth * 1.6, y: shoulderY + (hipY - shoulderY) * 0.6 };
+  const handRPsd = psdCentersByBoneName.get("handR")?.length
+    ? avg(psdCentersByBoneName.get("handR")!)
+    : psdCentersByBoneName.get("forearmR")?.length
+      ? avg(psdCentersByBoneName.get("forearmR")!)
+      : { x: torsoCenterX - shoulderHalfWidth * 1.6, y: shoulderY + (hipY - shoulderY) * 0.6 };
 
   // shin/foot：legwear 之类大概率落到 shinL（默认侧），需要按 PSD 中心 X 区分左右
-  const shinCenters = psdCentersByBoneName.get("shinL") ?? [];
-  const shinRCenters = psdCentersByBoneName.get("shinR") ?? [];
+  const shinCenters = [...(psdCentersByBoneName.get("shinL") ?? []), ...(psdCentersByBoneName.get("footL") ?? [])];
+  const shinRCenters = [...(psdCentersByBoneName.get("shinR") ?? []), ...(psdCentersByBoneName.get("footR") ?? [])];
   let footLPsd: Pt;
   let footRPsd: Pt;
   if (shinCenters.length > 0 && shinRCenters.length > 0) {
@@ -277,6 +327,15 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
   const kneeRW = toW(kneeRPsd);
   const footLW = toW(footLPsd);
   const footRW = toW(footRPsd);
+  const chestW = toW(centerOfRects(psdRectsByBoneName.get("chest") ?? [], { x: torsoCenterX, y: shoulderY + (hipY - shoulderY) * 0.35 }));
+  const waistW = toW(centerOfRects(psdRectsByBoneName.get("waist") ?? [], { x: torsoCenterX, y: hipY - (hipY - shoulderY) * 0.18 }));
+  const capeW = toW(centerOfRects(psdRectsByBoneName.get("cape") ?? [], { x: torsoCenterX, y: shoulderY + (hipY - shoulderY) * 0.55 }));
+  const skirtW = toW(centerOfRects(psdRectsByBoneName.get("skirt") ?? [], { x: torsoCenterX, y: hipY + canvasH * 0.08 }));
+  const hairFrontW = toW(centerOfRects(psdRectsByBoneName.get("hairFront") ?? [], { x: headCenter.x, y: headCenter.y - headHeight * 0.2 }));
+  const hairBackW = toW(centerOfRects(psdRectsByBoneName.get("hairBack") ?? [], { x: headCenter.x, y: headCenter.y - headHeight * 0.05 }));
+  const eyeLW = toW(centerOfRects(psdRectsByBoneName.get("eyeL") ?? [], { x: headCenter.x + headHeight * 0.16, y: headCenter.y - headHeight * 0.05 }));
+  const eyeRW = toW(centerOfRects(psdRectsByBoneName.get("eyeR") ?? [], { x: headCenter.x - headHeight * 0.16, y: headCenter.y - headHeight * 0.05 }));
+  const mouthW = toW(centerOfRects(psdRectsByBoneName.get("mouth") ?? [], { x: headCenter.x, y: headCenter.y + headHeight * 0.18 }));
 
   // —— 写入 BoneNode（按父链顺序：root → torso → head/upperArmL/upperArmR；root → thighL/thighR；upperArm → forearm；thigh → shin） ——
   // root 放髋点；它没有父，rotation=0，length=0。
@@ -297,6 +356,12 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
     worldJoint: hipW, worldRotDeg: torsoWorldRot,
   });
 
+  // 细分躯干：作为 torso 下的二级摆动骨，没有样本时回落到 torso 轴线附近。
+  pushChildRewrite(rewrites, "chest", "torso", chestW, shoulderW, 12);
+  pushChildRewrite(rewrites, "waist", "torso", waistW, hipW, 10);
+  pushChildRewrite(rewrites, "cape", "chest", capeW, skirtW, 16);
+  pushChildRewrite(rewrites, "skirt", "waist", skirtW, footLW.y > footRW.y ? footLW : footRW, 16);
+
   // head：joint 放到头部簇内部，slot 通过 setupOffset 保持各图层原始相对位置。
   const headLocal = worldToLocalBone({ joint: headJointW, tip: headTipW }, hipW, torsoWorldRot);
   rewrites.push({
@@ -305,6 +370,11 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
     rotation: headLocal.rotation, length: Math.max(12, headLocal.length),
     worldJoint: headJointW, worldRotDeg: torsoWorldRot + headLocal.rotation,
   });
+  pushChildRewrite(rewrites, "hairBack", "head", hairBackW, { x: hairBackW.x, y: hairBackW.y + Math.max(10, headHeight * psdScale * 0.25) }, 10);
+  pushChildRewrite(rewrites, "hairFront", "head", hairFrontW, { x: hairFrontW.x, y: hairFrontW.y + Math.max(10, headHeight * psdScale * 0.2) }, 10);
+  pushChildRewrite(rewrites, "eyeL", "head", eyeLW, { x: eyeLW.x + 10, y: eyeLW.y }, 6);
+  pushChildRewrite(rewrites, "eyeR", "head", eyeRW, { x: eyeRW.x + 10, y: eyeRW.y }, 6);
+  pushChildRewrite(rewrites, "mouth", "head", mouthW, { x: mouthW.x + 10, y: mouthW.y }, 6);
 
   // upperArmL：parent torso，joint 在左肩
   const uALLocal = worldToLocalBone({ joint: shoulderLW, tip: elbowLW }, hipW, torsoWorldRot);
@@ -322,6 +392,7 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
     rotation: fALLocal.rotation, length: fALLocal.length,
     worldJoint: elbowLW, worldRotDeg: torsoWorldRot + uALLocal.rotation + fALLocal.rotation,
   });
+  pushChildRewrite(rewrites, "handL", "forearmL", handLW, { x: handLW.x + Math.max(10, shoulderHalfWidth * psdScale * 0.35), y: handLW.y }, 8);
 
   // upperArmR / forearmR
   const uARLocal = worldToLocalBone({ joint: shoulderRW, tip: elbowRW }, hipW, torsoWorldRot);
@@ -338,6 +409,7 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
     rotation: fARLocal.rotation, length: fARLocal.length,
     worldJoint: elbowRW, worldRotDeg: torsoWorldRot + uARLocal.rotation + fARLocal.rotation,
   });
+  pushChildRewrite(rewrites, "handR", "forearmR", handRW, { x: handRW.x - Math.max(10, shoulderHalfWidth * psdScale * 0.35), y: handRW.y }, 8);
 
   // thighL / shinL：parent 是 root（rot=0），joint 在 hipL
   const tLLocal = worldToLocalBone({ joint: hipLW, tip: kneeLW }, hipW, 0);
@@ -354,6 +426,7 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
     rotation: sLLocal.rotation, length: sLLocal.length,
     worldJoint: kneeLW, worldRotDeg: tLLocal.rotation + sLLocal.rotation,
   });
+  pushChildRewrite(rewrites, "footL", "shinL", footLW, { x: footLW.x + Math.max(10, shoulderHalfWidth * psdScale * 0.25), y: footLW.y }, 8);
 
   const tRLocal = worldToLocalBone({ joint: hipRW, tip: kneeRW }, hipW, 0);
   rewrites.push({
@@ -369,6 +442,7 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
     rotation: sRLocal.rotation, length: sRLocal.length,
     worldJoint: kneeRW, worldRotDeg: tRLocal.rotation + sRLocal.rotation,
   });
+  pushChildRewrite(rewrites, "footR", "shinR", footRW, { x: footRW.x - Math.max(10, shoulderHalfWidth * psdScale * 0.25), y: footRW.y }, 8);
 
   // —— 把 rewrites 应用到现有 BoneNode 上（按 name 匹配，保留 id/parentId/scale 等） ——
   const rewriteByName = new Map(rewrites.map((r) => [r.name, r]));
@@ -400,7 +474,7 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
       psdScale,
     );
     const local = invRotate({ x: pivotWorld.x - boneWorld.worldJoint.x, y: pivotWorld.y - boneWorld.worldJoint.y }, boneWorld.worldRotDeg);
-    const baseImageRot = bone.name === "head" || bone.name === "torso" || bone.name === "body" ? 0 : boneWorld.worldRotDeg;
+    const baseImageRot = isUprightBone(bone.name) ? 0 : boneWorld.worldRotDeg;
     return {
       ...slot,
       setupOffset: {
@@ -411,13 +485,14 @@ export function fitSkeletonToPsd(skel: Skeleton): { skeleton: Skeleton; report: 
     };
   });
 
-  const fittedCount = rewrites.length;
-  const headPartsCount = (psdCentersByBoneName.get("head") ?? []).length;
-  const torsoPartsCount = (psdCentersByBoneName.get("torso") ?? []).length;
-  const handLCount = (psdCentersByBoneName.get("forearmL") ?? []).length;
-  const handRCount = (psdCentersByBoneName.get("forearmR") ?? []).length;
-  const shinCount = (psdCentersByBoneName.get("shinL") ?? []).length + (psdCentersByBoneName.get("shinR") ?? []).length;
-  const report = `自适应骨架完成：重写 ${fittedCount} 根骨。参考样本：head ${headPartsCount} 件 / torso ${torsoPartsCount} 件 / forearmL ${handLCount} / forearmR ${handRCount} / shin ${shinCount}。`;
+  const fittedCount = newBones.filter((b) => rewriteByName.has(b.name)).length;
+  const headPartsCount = headRects.length;
+  const torsoPartsCount = torsoRects.length;
+  const handLCount = (psdCentersByBoneName.get("forearmL") ?? []).length + (psdCentersByBoneName.get("handL") ?? []).length;
+  const handRCount = (psdCentersByBoneName.get("forearmR") ?? []).length + (psdCentersByBoneName.get("handR") ?? []).length;
+  const shinCount = shinCenters.length + shinRCenters.length;
+  const extraCount = ["hairFront", "hairBack", "eyeL", "eyeR", "mouth", "chest", "waist", "cape", "skirt", "handL", "handR", "footL", "footR"].filter((name) => rewriteByName.has(name) && skel.bones.some((b) => b.name === name)).length;
+  const report = `自适应骨架完成：重写 ${fittedCount} 根骨（细分 ${extraCount} 根）。参考样本：head ${headPartsCount} 件 / torso ${torsoPartsCount} 件 / forearmL ${handLCount} / forearmR ${handRCount} / shin ${shinCount}。`;
 
   return { skeleton: { ...skel, bones: newBones, slots: newSlots }, report };
 }
