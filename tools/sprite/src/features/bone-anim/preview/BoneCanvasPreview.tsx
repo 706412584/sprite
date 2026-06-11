@@ -33,6 +33,11 @@ interface Props {
   timeScale: number;
   width?: number;
   height?: number;
+  /** 受控时间(秒)：当 isPaused 为 true 时,直接画该 time 的单帧；
+   *  没有 isPaused 时仅作为 rAF 起始偏移意义不大,可不传。 */
+  controlledTime?: number;
+  /** 暂停 rAF 自驱动；配合 controlledTime 用来手动 scrub 进度条。 */
+  isPaused?: boolean;
 }
 
 interface BoneWorldTransform {
@@ -134,7 +139,7 @@ function composeWorld(parent: BoneWorldTransform | null, local: BoneWorldTransfo
   };
 }
 
-export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, width = 480, height = 480 }: Props) {
+export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, width = 480, height = 480, controlledTime, isPaused }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const startRef = useRef<number>(0);
   const rafRef = useRef<number | null>(null);
@@ -186,17 +191,9 @@ export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, widt
     // 同 StageRig：root 下移 55px 让头不出 viewBox 顶部
     const cy = height / 2 + 55;
 
-    const loopTick = (now: number) => {
-      const elapsed = ((now - startRef.current) / 1000) * Math.max(0.05, timeScale);
-      let time = elapsed;
-      if (animation) {
-        if (loop && animation.loop) {
-          time = elapsed % Math.max(0.001, animation.durationSec);
-        } else {
-          time = Math.min(elapsed, animation.durationSec);
-        }
-      }
-
+    // 绘制指定 time 的单帧（不依赖 rAF 时间）。
+    // 抽成纯函数,既给 rAF 循环用,也给 paused+controlledTime 直接调用。
+    const paintFrame = (time: number) => {
       // 计算各 bone 的世界 transform
       const worldByBone = new Map<string, BoneWorldTransform>();
       // 拓扑序：按 parent 出现优先；模板生成时基本是顺序的，此处一遍重试两次足够
@@ -292,7 +289,27 @@ export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, widt
         ctx.arc(cx + w.x, cy + w.y, 3, 0, Math.PI * 2);
         ctx.fill();
       }
+    };
 
+    // paused: 直接绘制 controlledTime 帧,不启 rAF
+    if (isPaused) {
+      const dur = animation?.durationSec ?? 0;
+      const t = Math.max(0, Math.min(controlledTime ?? 0, dur));
+      paintFrame(t);
+      return; // 没有 rAF 需要清理
+    }
+
+    const loopTick = (now: number) => {
+      const elapsed = ((now - startRef.current) / 1000) * Math.max(0.05, timeScale);
+      let time = elapsed;
+      if (animation) {
+        if (loop && animation.loop) {
+          time = elapsed % Math.max(0.001, animation.durationSec);
+        } else {
+          time = Math.min(elapsed, animation.durationSec);
+        }
+      }
+      paintFrame(time);
       rafRef.current = requestAnimationFrame(loopTick);
     };
 
@@ -300,7 +317,7 @@ export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, widt
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [skeleton, animation, images, loop, timeScale, width, height]);
+  }, [skeleton, animation, images, loop, timeScale, width, height, controlledTime, isPaused]);
 
   // 强制 React 在 animation 变化时重新挂载 effect
   useEffect(() => {

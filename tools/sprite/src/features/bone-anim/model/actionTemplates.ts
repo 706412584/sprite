@@ -199,13 +199,18 @@ const walkTemplate: ActionTemplate = {
   defaultDuration: 0.9,
   defaultLoop: true,
   params: [
-    { key: "legSwing", label: "摆腿幅度 (度)", min: 5, max: 60, step: 1, default: 25 },
-    { key: "armSwing", label: "摆臂幅度 (度)", min: 5, max: 60, step: 1, default: 18 },
-    { key: "shoulderSwingRatio", label: "肩部摆臂比例", min: 0, max: 0.6, step: 0.01, default: 0.22, group: "guard" },
-    { key: "forearmSwingRatio", label: "前臂接力比例", min: 0, max: 1.2, step: 0.01, default: 0.82, group: "guard" },
-    { key: "handSwingRatio", label: "手部接力比例", min: 0, max: 1.2, step: 0.01, default: 0.7, group: "guard" },
-    { key: "armCrossGuard", label: "交叉保护", min: 0, max: 1, step: 0.01, default: 0.55, group: "guard" },
-    { key: "bodyBob", label: "身体上下", min: 0, max: 10, step: 0.5, default: 3 },
+    // 默认值整体下调约 40%：legSwing 25→14、armSwing 18→10、bodyBob 3→1.5
+    // 原因：旧默认值在 480 画布上看起来摆动过夸张，且子骨接力比例差异（shin 0.45/foot 0.22）
+    // 让肢体看起来"上下骨没接住" → 关节处贴图分离。这里同时收紧默认幅度 + 提高子骨接力比例。
+    { key: "legSwing", label: "摆腿幅度 (度)", min: 0, max: 60, step: 1, default: 14 },
+    { key: "armSwing", label: "摆臂幅度 (度)", min: 0, max: 60, step: 1, default: 10 },
+    { key: "shinFollow", label: "小腿接力比例", min: 0.4, max: 1.2, step: 0.01, default: 0.9, group: "guard" },
+    { key: "footFollow", label: "脚部接力比例", min: 0.4, max: 1.2, step: 0.01, default: 0.8, group: "guard" },
+    { key: "shoulderSwingRatio", label: "肩部摆臂比例", min: 0, max: 1.2, step: 0.01, default: 0.55, group: "guard" },
+    { key: "forearmSwingRatio", label: "前臂接力比例", min: 0.4, max: 1.2, step: 0.01, default: 0.95, group: "guard" },
+    { key: "handSwingRatio", label: "手部接力比例", min: 0.4, max: 1.2, step: 0.01, default: 0.9, group: "guard" },
+    { key: "armCrossGuard", label: "交叉保护", min: 0, max: 1, step: 0.01, default: 0.3, group: "guard" },
+    { key: "bodyBob", label: "身体上下", min: 0, max: 10, step: 0.5, default: 1.5 },
   ],
   generate: (skeleton, params) => {
     const duration = 0.9;
@@ -216,25 +221,29 @@ const walkTemplate: ActionTemplate = {
       pushRotateSamples(anim, skeleton, boneName, sampleCount, duration, amp, phase);
     };
 
+    // 关节同步：原 phase 偏移（thigh→shin 0.35π→shin、foot→0.55π）会让父子骨摆动到各自极值的时机错开,
+    // 在 480 画布上看起来"贴图在关节处分裂"。这里把子骨 phase 与父骨完全对齐（同相），
+    // 接力比例提到 0.8~0.9（而不是 0.45/0.22），子骨整体看起来就像被父骨"带"着摆,
+    // 关节处没有"父骨已到 +25° 而子骨还在 0°"的撕裂感。
     swingPair("thighL", 0, params.legSwing);
     swingPair("thighR", Math.PI, params.legSwing);
-    swingPair("shinL", Math.PI * 0.35, params.legSwing * 0.45);
-    swingPair("shinR", Math.PI * 1.35, params.legSwing * 0.45);
-    swingPair("footL", Math.PI * 0.55, params.legSwing * 0.22);
-    swingPair("footR", Math.PI * 1.55, params.legSwing * 0.22);
+    swingPair("shinL", 0, params.legSwing * params.shinFollow);
+    swingPair("shinR", Math.PI, params.legSwing * params.shinFollow);
+    swingPair("footL", 0, params.legSwing * params.footFollow);
+    swingPair("footR", Math.PI, params.legSwing * params.footFollow);
     const intelligentGuard = Math.max(clamp01(params.armCrossGuard), estimateShoulderGuard(skeleton));
-    const shoulderRatio = Math.max(0, params.shoulderSwingRatio * (1 - intelligentGuard * 0.75));
-    const forearmRatio = params.forearmSwingRatio + intelligentGuard * 0.18;
-    const handRatio = params.handSwingRatio + intelligentGuard * 0.12;
+    const shoulderRatio = Math.max(0, params.shoulderSwingRatio * (1 - intelligentGuard * 0.5));
+    const forearmRatio = params.forearmSwingRatio;
+    const handRatio = params.handSwingRatio;
 
-    // 肩部摆动幅度小，并在 PSD 贴图 pivot 靠近肩关节/覆盖不足时自动继续压低；
-    // 主要摆动位移由前臂和手接力，避免双手交叉极值露出肩膀关节。
+    // 手臂同样关节对齐：肩/前臂/手共用 0/π phase；接力比例保持 0.55/0.95/0.9 让肩部小幅、
+    // 前臂和手大幅同步——避免肩部 pivot 缝隙暴露 + 肘/腕处贴图分离。
     swingPair("upperArmL", Math.PI, params.armSwing * shoulderRatio);
     swingPair("upperArmR", 0, params.armSwing * shoulderRatio);
-    swingPair("forearmL", Math.PI * 1.05, params.armSwing * forearmRatio);
-    swingPair("forearmR", Math.PI * 0.05, params.armSwing * forearmRatio);
-    swingPair("handL", Math.PI * 1.1, params.armSwing * handRatio);
-    swingPair("handR", Math.PI * 0.1, params.armSwing * handRatio);
+    swingPair("forearmL", Math.PI, params.armSwing * forearmRatio);
+    swingPair("forearmR", 0, params.armSwing * forearmRatio);
+    swingPair("handL", Math.PI, params.armSwing * handRatio);
+    swingPair("handR", 0, params.armSwing * handRatio);
     swingPair("hairFront", Math.PI * 0.25, params.bodyBob * 1.1);
     swingPair("hairBack", Math.PI * 0.45, params.bodyBob * 1.4);
     swingPair("cape", Math.PI * 0.75, params.bodyBob * 2.2);
@@ -271,15 +280,19 @@ const walkTemplate: ActionTemplate = {
 
 /**
  * walk 中线兜底：让 PSD1 这类"无肢体绑定"素材至少有重心切换 + 整体微晃。
- * 对正常素材也加但幅度极小，几乎不可见。
+ * 对正常素材也加但幅度极小，几乎不可见；对无侧素材投影器会另外加 waist Y 抬腿，
+ * 这里不重复处理 Y 维度，专注 X 重心切换 + waist/chest 旋转。
  */
 function pushMidlineFallbackWalk(anim: Animation, skeleton: Skeleton, sampleCount: number, duration: number) {
-  pushRotateSamples(anim, skeleton, "waist", sampleCount, duration, 2.2, Math.PI / 2);
-  pushRotateSamples(anim, skeleton, "chest", sampleCount, duration, 1.4, Math.PI / 2);
+  // 兜底幅度回调：原 ±4°/±2.5°/±5px 与正常 thigh/forearm 摆动叠加后视觉偏夸张。
+  // 现在收敛到 ±1.5°/±1°/±2px：对全无侧服饰素材仍有"重心切换"线索，
+  // 对正常素材几乎不可察觉，避免 waist 上挂的整张下半身被额外晃动一次。
+  pushRotateSamples(anim, skeleton, "waist", sampleCount, duration, 1.5, Math.PI / 2);
+  pushRotateSamples(anim, skeleton, "chest", sampleCount, duration, 1.0, Math.PI / 2);
   const root = findBoneByName(skeleton, "root");
   if (root) {
     const tlRoot = ensureTimeline(anim, root.id);
-    const xSamples = sampleSinKeyframes(sampleCount, duration, (t) => Math.sin((t / duration) * Math.PI * 2) * 1.2);
+    const xSamples = sampleSinKeyframes(sampleCount, duration, (t) => Math.sin((t / duration) * Math.PI * 2) * 2);
     for (const s of xSamples) pushKey(tlRoot, { time: s.time, channel: "translate", values: [s.value, 0], easing: "linear" });
   }
 }

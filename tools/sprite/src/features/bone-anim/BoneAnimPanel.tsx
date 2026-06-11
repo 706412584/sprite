@@ -65,7 +65,7 @@ function BoneAnimPanelInner() {
         // 写入 attachments
         let next = { ...skeleton, attachments: parts };
         // 应用 humanoid 细分模板
-        const tpl = getTemplateById("humanoid-detailed") || getTemplateById("humanoid");
+        const tpl = getTemplateById("humanoid_detailed") || getTemplateById("humanoid");
         if (tpl) next = applyTemplate(next, tpl);
 
         // 一键绑骨
@@ -99,6 +99,11 @@ function BoneAnimPanelInner() {
 
         if (aborted) return;
         setSkeleton(next);
+        // dev-only debug 通道：把最终 skeleton 暴露到 window，
+        // 方便浏览器 console / playwright 自动化直接读取 bones/slots/animations
+        // 来排查 PSD 图层→骨骼归属、动画 timeline 是否落到真挂图骨等问题。
+        // 仅在 DEV 启用，生产构建会被 import.meta.env.DEV 守门排除。
+        (window as unknown as { __lastSkeleton?: unknown }).__lastSkeleton = next;
         setActive("preview");
         setDevStatus(`[dev] 完成：${parts.length} 部件 / 姿态=${detection.pose}@${(detection.confidence * 100).toFixed(0)}% / 动作=${actionParam} / 实际姿态=${effectivePose}`);
 
