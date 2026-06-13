@@ -40,6 +40,9 @@ function BoneAnimPanelInner() {
     if (!fileRel) return;
     const poseParam = (sp.get("pose") as CharacterPose | null) ?? null;
     const actionParam = sp.get("action") ?? "walk";
+    const filtersExclude = sp.get("filtersExclude")?.split(/[,\n\r]+/).map((v) => v.trim()).filter(Boolean) ?? [];
+    const filtersHide = sp.get("filtersHide")?.split(/[,\n\r]+/).map((v) => v.trim()).filter(Boolean) ?? [];
+    const validateMode = sp.get("validate");
     let aborted = false;
 
     (async () => {
@@ -57,15 +60,15 @@ function BoneAnimPanelInner() {
         if (aborted) return;
 
         setDevStatus("[dev] PSD 解析中...");
-        const result = await psdSplit({ dataUrl });
-        const { parts } = layersToParts(result);
+        const result = await psdSplit({ dataUrl, excludeNames: filtersExclude, hideNames: filtersHide });
+        const { parts } = layersToParts(result, { excludeNames: filtersExclude, hideNames: filtersHide });
         if (parts.length === 0) throw new Error("PSD 未解析出可用图层");
         if (aborted) return;
 
         // 写入 attachments
         let next = { ...skeleton, attachments: parts };
         // 应用 humanoid 细分模板
-        const tpl = getTemplateById("humanoid_detailed") || getTemplateById("humanoid");
+        const tpl = getTemplateById(poseParam === "sideLeft" || poseParam === "sideRight" ? "humanoid_side_detailed" : "humanoid_detailed") || getTemplateById("humanoid");
         if (tpl) next = applyTemplate(next, tpl);
 
         // 一键绑骨
@@ -106,6 +109,41 @@ function BoneAnimPanelInner() {
         (window as unknown as { __lastSkeleton?: unknown }).__lastSkeleton = next;
         setActive("preview");
         setDevStatus(`[dev] 完成：${parts.length} 部件 / 姿态=${detection.pose}@${(detection.confidence * 100).toFixed(0)}% / 动作=${actionParam} / 实际姿态=${effectivePose}`);
+
+        // 自动截图：等 preview canvas 渲染 + 走完 1s 让动画转一圈，再 POST 到 /api/dev-canvas
+        if (validateMode === "pixel-change") {
+          const frames = Math.max(2, parseInt(sp.get("frames") || "4", 10));
+          const interval = parseInt(sp.get("intervalMs") || "160", 10);
+          const minChangedPixels = parseInt(sp.get("minChangedPixels") || "32", 10);
+          const minChangedRatio = Number(sp.get("minChangedRatio") || "0.0005");
+          await new Promise((r) => setTimeout(r, 800));
+          const canvas = document.querySelector("canvas") as HTMLCanvasElement | null;
+          const ctx = canvas?.getContext("2d");
+          if (!canvas || !ctx) {
+            setDevStatus((s) => `${s} | 像素验证=找不到 canvas`);
+          } else {
+            let previous: Uint8ClampedArray | null = null;
+            let changedPixels = 0;
+            for (let i = 0; i < frames; i += 1) {
+              if (i > 0) await new Promise((r) => setTimeout(r, interval));
+              const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+              if (previous) {
+                for (let p = 0; p < data.length; p += 4) {
+                  if (Math.abs(data[p] - previous[p]) > 8 || Math.abs(data[p + 1] - previous[p + 1]) > 8 || Math.abs(data[p + 2] - previous[p + 2]) > 8 || Math.abs(data[p + 3] - previous[p + 3]) > 8) {
+                    changedPixels += 1;
+                  }
+                }
+              }
+              previous = new Uint8ClampedArray(data);
+            }
+            const totalPixels = Math.max(1, canvas.width * canvas.height * (frames - 1));
+            const changedRatio = changedPixels / totalPixels;
+            const pass = changedPixels >= minChangedPixels && changedRatio >= minChangedRatio;
+            const report = { pass, changedPixels, changedRatio, frames, minChangedPixels, minChangedRatio };
+            (window as unknown as { __lastPixelValidation?: unknown }).__lastPixelValidation = report;
+            setDevStatus((s) => `${s} | 像素验证=${pass ? "PASS" : "FAIL"} changed=${changedPixels} ratio=${changedRatio.toFixed(6)}`);
+          }
+        }
 
         // 自动截图：等 preview canvas 渲染 + 走完 1s 让动画转一圈，再 POST 到 /api/dev-canvas
         const snapName = sp.get("snap");

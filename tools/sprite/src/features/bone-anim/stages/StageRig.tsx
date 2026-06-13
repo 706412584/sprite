@@ -6,11 +6,12 @@
 import { useCallback, useMemo, useState } from "react";
 import { useBoneAnim, CharacterPoseMode } from "../BoneAnimContext";
 import { applyTemplate, getTemplateById, skeletonTemplates } from "../model/skeletonTemplates";
-import { AttachmentImage, BoneNode, findAttachment, findBone, findBoneByName, getDisplayName, makeId, Skeleton, Slot } from "../model/skeletonModel";
+import { AttachmentImage, BoneNode, findBone, findBoneByName, getDisplayName, makeId, Skeleton, Slot } from "../model/skeletonModel";
 import { LIMB_LENGTH_PAD } from "../model/poseToParts";
 import { mapPsdLayerToBone } from "../model/psdBoneMapping";
 import { fitSkeletonToPsd } from "../model/fitSkeletonToPsd";
 import { detectPose } from "../model/poseDetector";
+import { convertFrontPsdToThreeQuarter, FrontPsdToThreeQuarterReport } from "../model/frontPsdToThreeQuarter";
 
 interface PsdRigCheck {
   total: number;
@@ -20,7 +21,6 @@ interface PsdRigCheck {
   missingBones: string[];
   defaultSideWarnings: string[];
   keyParts: Array<{ label: string; ok: boolean }>;
-  sidePendingWarning: boolean;
 }
 
 const sidedLayerPattern = /(^|[-_])(l|r)($|[-_0-9])|left|right/i;
@@ -86,7 +86,7 @@ interface Props {
 }
 
 export function StageRig({ onNext }: Props) {
-  const { skeleton, setSkeleton, selectedSlotId, setSelectedSlotId, poseMode, setPoseMode, setPoseDetection } = useBoneAnim();
+  const { skeleton, setSkeleton, selectedSlotId, setSelectedSlotId, poseMode, setPoseMode, setPoseDetection, setPoseOverride } = useBoneAnim();
   const [templateId, setTemplateId] = useState<string>("humanoid");
 
   const currentTemplate = useMemo(() => getTemplateById(templateId), [templateId]);
@@ -111,6 +111,27 @@ export function StageRig({ onNext }: Props) {
   const [autoRigHint, setAutoRigHint] = useState<string | null>(null);
   const [psdRigHint, setPsdRigHint] = useState<string | null>(null);
   const [psdRigCheck, setPsdRigCheck] = useState<PsdRigCheck | null>(null);
+  const [threeQuarterReport, setThreeQuarterReport] = useState<FrontPsdToThreeQuarterReport | null>(null);
+
+  const attachmentById = useMemo(() => new Map(skeleton.attachments.map((attachment) => [attachment.id, attachment])), [skeleton.attachments]);
+  const selectedSlot: Slot | undefined = useMemo(
+    () => skeleton.slots.find((slot) => slot.id === selectedSlotId),
+    [skeleton.slots, selectedSlotId],
+  );
+  const selectedAttachment = useMemo(
+    () => (selectedSlot?.attachmentId ? attachmentById.get(selectedSlot.attachmentId) : undefined),
+    [attachmentById, selectedSlot],
+  );
+  const hasPsdSourceParts = useMemo(() => skeleton.attachments.some((attachment) => attachment.sourceRect), [skeleton.attachments]);
+  const hasBoundPsdParts = useMemo(
+    () => skeleton.slots.some((slot) => Boolean(slot.attachmentId && attachmentById.get(slot.attachmentId)?.sourceRect)),
+    [attachmentById, skeleton.slots],
+  );
+  const threeQuarterDisabledReason = !hasPsdSourceParts
+    ? "没有带 sourceRect 的 PSD 部件。先解析 PSD 分层并导入。"
+    : !hasBoundPsdParts
+      ? "PSD 部件还没有绑定到 slot。请先执行 PSD 一键绑骨。"
+      : null;
 
   // PSD 一键绑骨：对带 sourceRect 的图层按"服饰名→骨骼"映射建 slot 绑到目标骨。
   // 绑骨建立"图层归属哪根骨"的数据关联（供导出与后续动画使用）；预览采用「完全骨骼驱动」，
@@ -199,11 +220,21 @@ export function StageRig({ onNext }: Props) {
         missingBones,
         defaultSideWarnings,
         keyParts: buildKeyPartChecks(prev),
-        sidePendingWarning: poseMode === "sidePending",
       });
       return nextSkel;
     });
-  }, [poseMode, setSkeleton, setPoseDetection]);
+  }, [setSkeleton, setPoseDetection]);
+
+  const convertPsdToThreeQuarter = useCallback(() => {
+    setSkeleton((prev) => {
+      const result = convertFrontPsdToThreeQuarter(prev, { direction: "right" });
+      setThreeQuarterReport(result.report);
+      if (result.skeleton === prev) return prev;
+      return result.skeleton;
+    });
+    setPoseMode("pseudoSide");
+    setPoseOverride("threeQuarter");
+  }, [setSkeleton, setPoseMode, setPoseOverride]);
 
   // 按名称自动绑定：槽位名 === 部件名（姿态语义部件直接命中），只填未绑定的槽位。
   const autoRig = useCallback(() => {
@@ -245,9 +276,6 @@ export function StageRig({ onNext }: Props) {
     [setSkeleton],
   );
 
-  const selectedSlot: Slot | undefined = skeleton.slots.find((s) => s.id === selectedSlotId);
-  const selectedAttachment = selectedSlot ? findAttachment(skeleton, selectedSlot.attachmentId || "") : undefined;
-
   const slotHint = useMemo(() => {
     if (!currentTemplate || !selectedSlot) return "";
     return currentTemplate.slots.find((s) => s.name === selectedSlot.name)?.hint ?? "";
@@ -256,8 +284,8 @@ export function StageRig({ onNext }: Props) {
   const ready = skeleton.bones.length > 0 && skeleton.slots.some((s) => s.attachmentId);
   const poseNotes: Record<CharacterPoseMode, string> = {
     front: "正面 PSD 可使用人形/细分人形模板，当前 PSD 拟合按左右对称处理。",
-    pseudoSide: "伪侧面仍使用正面素材，通过层级、缩放和动作幅度模拟 3Q 效果。",
-    sidePending: "真侧面需要侧面 PSD 模板和近/远侧绑定规则；当前只提示，不按侧面自动拟合。",
+    pseudoSide: "伪侧面复用 threeQuarter 姿态，可使用正面细分模板或侧面细分模板模拟 3Q 效果。",
+    sidePending: "真侧面会映射到 sideLeft/sideRight 流程；推荐使用「人形侧面细分」模板和 near/far 或 left/right 图层名。",
   };
 
   return (
@@ -265,7 +293,7 @@ export function StageRig({ onNext }: Props) {
       <div className="info-box">
         <strong>第二步：选择角色结构与朝向，再绑定 PSD 部件</strong>
         <p className="muted">
-          模板提供骨骼层级和槽位定义。正面和伪侧面先复用现有人形模板；真侧面模板仍在规划中，当前不会把正面 PSD 当成真实侧面处理。
+          模板提供骨骼层级和槽位定义。正面、伪侧面（threeQuarter）和真侧面（sideLeft/sideRight）都可沿 PSD 一键绑骨流程导入；真侧面建议选择侧面细分模板。
         </p>
       </div>
 
@@ -325,13 +353,42 @@ export function StageRig({ onNext }: Props) {
               <button onClick={autoRig} disabled={skeleton.attachments.length === 0}>
                 按名称自动绑定
               </button>
-              {skeleton.attachments.some((a) => a.sourceRect) && (
+              {hasPsdSourceParts && (
                 <button onClick={autoRigPsd} disabled={skeleton.bones.length === 0} title="按 PSD 图层名（服饰语义）自动映射到骨骼，摆位保持一比一">
                   PSD 一键绑骨
                 </button>
               )}
+              <button onClick={convertPsdToThreeQuarter} disabled={Boolean(threeQuarterDisabledReason)} title={threeQuarterDisabledReason ?? "非破坏式调整骨骼与 slot setup，生成 threeQuarter 伪侧面"}>
+                正面 PSD 转 3Q 伪侧面
+              </button>
+              {threeQuarterDisabledReason && <p className="muted">{threeQuarterDisabledReason}</p>}
               {autoRigHint && <p className="muted">{autoRigHint}</p>}
               {psdRigHint && <p className="muted">{psdRigHint}</p>}
+              {threeQuarterReport && (
+                <div className="bone-rig-checklist">
+                  <strong>3Q 伪侧面转换报告</strong>
+                  <p className="muted">非破坏式 3Q 伪侧面：不会重绘 PSD 像素，可再次应用但会叠加。</p>
+                  <div className="bone-stat-row">
+                    <span>方向：{threeQuarterReport.direction}</span>
+                    <span>强度：{threeQuarterReport.intensity.toFixed(2)}</span>
+                  </div>
+                  <div className="bone-stat-row">
+                    <span>骨骼：{threeQuarterReport.changedBones.length}</span>
+                    <span>槽位：{threeQuarterReport.changedSlots.length}</span>
+                  </div>
+                  <ul>
+                    {threeQuarterReport.changedBones.length > 0 && (
+                      <li className="ok">changedBones：{threeQuarterReport.changedBones.join("、")}</li>
+                    )}
+                    {threeQuarterReport.changedSlots.length > 0 && (
+                      <li className="ok">changedSlots：{threeQuarterReport.changedSlots.join("、")}</li>
+                    )}
+                    {threeQuarterReport.notes.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {psdRigCheck && (
                 <div className="bone-rig-checklist">
                   <strong>PSD 绑定检查</strong>
@@ -354,9 +411,6 @@ export function StageRig({ onNext }: Props) {
                     {psdRigCheck.defaultSideWarnings.map((name) => (
                       <li key={`side-${name}`} className="warning">缺少左右标记，已按默认侧匹配：{name}</li>
                     ))}
-                    {psdRigCheck.sidePendingWarning && (
-                      <li className="warning">真侧面模板尚未启用，当前不会按近/远侧自动绑定。</li>
-                    )}
                   </ul>
                 </div>
               )}
@@ -364,7 +418,7 @@ export function StageRig({ onNext }: Props) {
           )}
           <div className="bone-slot-list">
             {skeleton.slots.map((slot) => {
-              const att = findAttachment(skeleton, slot.attachmentId || "");
+              const att = slot.attachmentId ? attachmentById.get(slot.attachmentId) : undefined;
               return (
                 <div
                   key={slot.id}

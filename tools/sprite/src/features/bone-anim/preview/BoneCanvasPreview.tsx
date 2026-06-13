@@ -3,7 +3,7 @@
 // 用 canvas2d 绘制贴图。先满足 v1 验证：translate / rotate / scale 通道，linear / stepped 缓动。
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Animation, AttachmentImage, BoneNode, Keyframe, KeyframeChannel, Skeleton, Slot } from "../model/skeletonModel";
+import { Animation, AttachmentImage, BoneNode, Keyframe, KeyframeChannel, Skeleton } from "../model/skeletonModel";
 import { LIMB_LENGTH_PAD } from "../model/poseToParts";
 
 const UPRIGHT_ATTACHMENT_NAMES = new Set(["head", "torso", "body", "chest", "waist", "eyeL", "eyeR", "mouth"]);
@@ -172,6 +172,15 @@ export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, widt
     };
   }, [skeleton.attachments]);
 
+  const attachmentById = useMemo(() => new Map(skeleton.attachments.map((a) => [a.id, a])), [skeleton.attachments]);
+  const boneById = useMemo(() => new Map(skeleton.bones.map((b) => [b.id, b])), [skeleton.bones]);
+  const sortedSlots = useMemo(() => skeleton.slots.slice().sort((a, b) => a.zOrder - b.zOrder), [skeleton.slots]);
+  const imgById = useMemo(() => new Map(images.map((i) => [i.id, i.img])), [images]);
+  const psdScale = useMemo(() => {
+    const firstPsd = skeleton.attachments.find((a) => a.sourceRect);
+    return firstPsd?.sourceRect ? Math.min(width / firstPsd.sourceRect.canvasWidth, height / firstPsd.sourceRect.canvasHeight) : 0;
+  }, [skeleton.attachments, width, height]);
+
   // 渲染循环
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -230,18 +239,9 @@ export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, widt
       // 完全骨骼驱动：所有 slot（含 PSD 带 sourceRect 的部件）一律按所绑骨骼的世界 transform 定位，
       // 不再特殊处理 sourceRect 绝对坐标——这样部件能跟随骨骼动画移动/旋转，代价是静止摆位
       // 由骨骼 setup pose + pivot 决定，会与 PS 原图相对位置有偏差（用户已确认接受 tradeoff）。
-      const sortedSlots: Slot[] = skeleton.slots.slice().sort((a, b) => a.zOrder - b.zOrder);
-      const imgById = new Map(images.map((i) => [i.id, i.img]));
-
-      // PSD 服饰图层按画布 letterbox 同比缩放，避免被 computeAttachmentDisplaySize 按四肢长度压扁。
-      const firstPsd = skeleton.attachments.find((a) => a.sourceRect);
-      const psdScale = firstPsd?.sourceRect
-        ? Math.min(width / firstPsd.sourceRect.canvasWidth, height / firstPsd.sourceRect.canvasHeight)
-        : 0;
-
       for (const slot of sortedSlots) {
-        const att = skeleton.attachments.find((a) => a.id === slot.attachmentId);
-        const bone = skeleton.bones.find((b) => b.id === slot.boneId);
+        const att = attachmentById.get(slot.attachmentId || "");
+        const bone = boneById.get(slot.boneId);
         if (!att || !bone) continue;
         const w = worldByBone.get(bone.id);
         if (!w) continue;
@@ -317,7 +317,7 @@ export function BoneCanvasPreview({ skeleton, animationId, loop, timeScale, widt
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [skeleton, animation, images, loop, timeScale, width, height, controlledTime, isPaused]);
+  }, [skeleton, animation, attachmentById, boneById, sortedSlots, imgById, psdScale, loop, timeScale, width, height, controlledTime, isPaused]);
 
   // 强制 React 在 animation 变化时重新挂载 effect
   useEffect(() => {

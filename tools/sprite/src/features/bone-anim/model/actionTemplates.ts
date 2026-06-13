@@ -604,6 +604,101 @@ const runFrontTemplate: ActionTemplate = {
   },
 };
 
+// ---------- side 侧面动作 ----------
+const idleSideTemplate: ActionTemplate = {
+  ...idleTemplate,
+  id: "idleSide",
+  label: "Idle 侧面呼吸",
+  description: "侧面/3Q 待机：轻微前后重心与头发摆动。",
+  generate: (skeleton, params) => {
+    const anim = idleTemplate.generate(skeleton, params);
+    anim.name = "idleSide";
+    pushTranslateSamples(anim, skeleton, "root", 12, anim.durationSec, 1.5, 0, Math.PI / 2);
+    return anim;
+  },
+};
+
+const walkSideTemplate: ActionTemplate = {
+  ...walkTemplate,
+  id: "walkSide",
+  label: "Walk 侧面行走",
+  description: "真侧面/3Q 行走：沿侧面模板摆腿摆臂。",
+  generate: (skeleton, params) => {
+    const anim = walkTemplate.generate(skeleton, params);
+    anim.name = "walkSide";
+    return anim;
+  },
+};
+
+const runSideTemplate: ActionTemplate = {
+  id: "runSide",
+  label: "Run 侧面奔跑",
+  description: "侧面奔跑：更快步频、更大摆腿与身体起伏。",
+  defaultDuration: 0.55,
+  defaultLoop: true,
+  params: [
+    { key: "legSwing", label: "摆腿幅度 (度)", min: 0, max: 70, step: 1, default: 24 },
+    { key: "armSwing", label: "摆臂幅度 (度)", min: 0, max: 70, step: 1, default: 18 },
+    { key: "bodyBob", label: "身体上下", min: 0, max: 14, step: 0.5, default: 4 },
+    { key: "lean", label: "前倾 (度)", min: 0, max: 14, step: 0.5, default: 5, group: "advanced" },
+  ],
+  generate: (skeleton, params) => {
+    const duration = 0.55;
+    const anim = emptyAnimation("runSide", duration, true);
+    const sampleCount = 14;
+    pushRotateSamples(anim, skeleton, "thighL", sampleCount, duration, params.legSwing, 0);
+    pushRotateSamples(anim, skeleton, "thighR", sampleCount, duration, params.legSwing, Math.PI);
+    pushRotateSamples(anim, skeleton, "shinL", sampleCount, duration, params.legSwing * 0.9, 0);
+    pushRotateSamples(anim, skeleton, "shinR", sampleCount, duration, params.legSwing * 0.9, Math.PI);
+    pushRotateSamples(anim, skeleton, "footL", sampleCount, duration, params.legSwing * 0.75, 0);
+    pushRotateSamples(anim, skeleton, "footR", sampleCount, duration, params.legSwing * 0.75, Math.PI);
+    pushRotateSamples(anim, skeleton, "upperArmL", sampleCount, duration, params.armSwing * 0.55, Math.PI);
+    pushRotateSamples(anim, skeleton, "upperArmR", sampleCount, duration, params.armSwing * 0.55, 0);
+    pushRotateSamples(anim, skeleton, "forearmL", sampleCount, duration, params.armSwing, Math.PI);
+    pushRotateSamples(anim, skeleton, "forearmR", sampleCount, duration, params.armSwing, 0);
+    pushRotateSamples(anim, skeleton, "handL", sampleCount, duration, params.armSwing * 0.8, Math.PI);
+    pushRotateSamples(anim, skeleton, "handR", sampleCount, duration, params.armSwing * 0.8, 0);
+    const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
+    if (torso) {
+      const tl = ensureTimeline(anim, torso.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => -Math.abs(Math.sin((t / duration) * Math.PI * 2)) * params.bodyBob);
+      for (const sample of samples) pushKey(tl, { time: sample.time, channel: "translate", values: [0, sample.value], easing: "linear" });
+      pushKey(tl, { time: 0, channel: "rotate", values: [params.lean], easing: "linear" });
+      pushKey(tl, { time: duration, channel: "rotate", values: [params.lean], easing: "linear" });
+    }
+    pushRotateSamples(anim, skeleton, "hairFront", sampleCount, duration, params.bodyBob * 1.2, Math.PI * 0.25);
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.bodyBob * 1.5, Math.PI * 0.45);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.bodyBob * 2.4, Math.PI * 0.75);
+    pushRotateSamples(anim, skeleton, "skirt", sampleCount, duration, params.bodyBob * 1.8, Math.PI * 0.55);
+    return anim;
+  },
+};
+
+const castSideTemplate: ActionTemplate = {
+  id: "castSide",
+  label: "Cast 侧面施法",
+  description: "侧面施法：近侧手臂前伸，头发和披风跟随。",
+  defaultDuration: 0.8,
+  defaultLoop: false,
+  params: [
+    { key: "raiseAngle", label: "抬手角度 (度)", min: 5, max: 80, step: 1, default: 35 },
+    { key: "pushAngle", label: "推出角度 (度)", min: -80, max: 40, step: 1, default: -30 },
+    { key: "torsoLean", label: "躯干前倾 (度)", min: 0, max: 16, step: 0.5, default: 5 },
+  ],
+  generate: (skeleton, params) => {
+    const anim = emptyAnimation("castSide", 0.8, false);
+    pushRotateKeys(anim, skeleton, "upperArmL", [[0, 0, "easeOut"], [0.25, params.raiseAngle * 0.45, "easeIn"], [0.5, params.pushAngle * 0.45, "easeOut"], [0.8, 0, "linear"]]);
+    pushRotateKeys(anim, skeleton, "forearmL", [[0, 0, "easeOut"], [0.25, params.raiseAngle, "easeIn"], [0.5, params.pushAngle, "easeOut"], [0.8, 0, "linear"]]);
+    pushRotateKeys(anim, skeleton, "handL", [[0, 0, "easeOut"], [0.25, params.raiseAngle * 0.7, "easeIn"], [0.5, params.pushAngle * 0.8, "easeOut"], [0.8, 0, "linear"]]);
+    pushRotateKeys(anim, skeleton, "torso", [[0, 0, "linear"], [0.5, params.torsoLean, "easeOut"], [0.8, 0, "linear"]]);
+    pushRotateKeys(anim, skeleton, "head", [[0, 0, "linear"], [0.5, -params.torsoLean * 0.5, "easeOut"], [0.8, 0, "linear"]]);
+    pushRotateSamples(anim, skeleton, "hairFront", 6, 0.8, params.torsoLean * 1.2, Math.PI * 0.7);
+    pushRotateSamples(anim, skeleton, "hairBack", 6, 0.8, params.torsoLean * 1.6, Math.PI * 0.9);
+    pushRotateSamples(anim, skeleton, "cape", 6, 0.8, params.torsoLean * 2, Math.PI);
+    return anim;
+  },
+};
+
 export const actionTemplates: ActionTemplate[] = [
   idleTemplate,
   walkTemplate,
@@ -612,6 +707,10 @@ export const actionTemplates: ActionTemplate[] = [
   walkFrontTemplate,
   idleFrontTemplate,
   runFrontTemplate,
+  idleSideTemplate,
+  walkSideTemplate,
+  runSideTemplate,
+  castSideTemplate,
 ];
 
 /** 各预制对哪种姿态最适合：UI 高亮 + 投影决策都用它。Re-export 自 templatePoseMap 以兼容外部引用。 */
@@ -637,7 +736,7 @@ export function applyAction(skeleton: Skeleton, templateId: string, params: Reco
   if (pose) {
     anim = projectAnimationToPose(anim, skeleton, pose);
   }
-  const existed = skeleton.animations.find((a) => a.name === anim.name);
+  const existed = skeleton.animations.find((a) => a.sourceTemplate?.templateId === templateId) ?? skeleton.animations.find((a) => a.name === anim.name);
   const filtered = existed ? skeleton.animations.filter((a) => a.id !== existed.id) : skeleton.animations;
   return { ...skeleton, animations: [...filtered, anim] };
 }

@@ -31,7 +31,7 @@ function isTemplateRecommended(templateId: string, pose: CharacterPose): boolean
   const preset = TEMPLATE_PRESET_POSE[templateId];
   if (preset === "any") return false;
   if (pose === "front" || pose === "back") return preset === "front";
-  if (pose === "sideLeft" || pose === "sideRight") return preset === "side";
+  if (pose === "sideLeft" || pose === "sideRight" || pose === "threeQuarter") return preset === "side";
   return false;
 }
 
@@ -197,7 +197,7 @@ export function StageAction({ onNext }: Props) {
               )}
               <div className="export-actions">
                 <button onClick={apply}>应用此动作</button>
-                <button onClick={applyAll}>一键生成全部 4 个动作</button>
+                <button onClick={applyAll}>一键生成全部动作</button>
               </div>
             </>
           ) : null}

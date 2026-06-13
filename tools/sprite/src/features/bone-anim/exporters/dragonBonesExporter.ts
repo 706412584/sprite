@@ -193,6 +193,17 @@ function buildSkin(skeleton: Skeleton, atlas: PackedAtlas): DBSkin {
       type: "image",
       pivot: { x: att.pivot.x, y: att.pivot.y },
     };
+    const setupOffset = s.setupOffset;
+    if (setupOffset) {
+      const transform: DBTransform = {};
+      if (setupOffset.x !== 0) transform.x = setupOffset.x;
+      if (setupOffset.y !== 0) transform.y = setupOffset.y;
+      if (setupOffset.rotation !== 0) {
+        transform.skX = setupOffset.rotation;
+        transform.skY = setupOffset.rotation;
+      }
+      if (Object.keys(transform).length > 0) display.transform = transform;
+    }
     slot.push({ name: s.name, display: [display] });
   }
   return { name: "default", slot };

@@ -236,18 +236,38 @@ export interface PsdLayer {
   canvasHeight: number;
 }
 
+export interface PsdFilteredLayer {
+  name: string;
+  displayName: string;
+  matched: string[];
+  reason: string;
+}
+
+export interface PsdFilterReport {
+  excluded: PsdFilteredLayer[];
+  hidden: PsdFilteredLayer[];
+  unmatched: string[];
+}
+
 export interface PsdSplitResult {
   parts: PsdLayer[];
   width: number;
   height: number;
+  filtered?: PsdFilterReport;
 }
 
 // PSD 分层解析：把 Photoshop 分层立绘按图层一比一拆成部件，保留每层在画布上的绝对坐标。
 // 传本地路径（psd_path）或 base64（psd_data_url），二选一。
-export function psdSplit(input: { path?: string; dataUrl?: string }) {
+export function psdSplit(input: { path?: string; dataUrl?: string; excludeNames?: string[]; hideNames?: string[]; onlyVisible?: boolean }) {
   return requestJson<PsdSplitResult>("/api/psd-split", {
     method: "POST",
-    body: JSON.stringify({ psd_path: input.path, psd_data_url: input.dataUrl }),
+    body: JSON.stringify({
+      psd_path: input.path,
+      psd_data_url: input.dataUrl,
+      exclude_names: input.excludeNames,
+      hide_names: input.hideNames,
+      only_visible: input.onlyVisible,
+    }),
   });
 }
 

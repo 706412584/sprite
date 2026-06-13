@@ -14,4 +14,8 @@ export const TEMPLATE_PRESET_POSE: Record<string, TemplatePosePreset> = {
   walkFront: "front",
   idleFront: "front",
   runFront: "front",
+  idleSide: "side",
+  walkSide: "side",
+  runSide: "side",
+  castSide: "side",
 };

@@ -15,15 +15,37 @@ export interface LayersToPartsResult {
   warnings: string[];
 }
 
+function getFilteredLayerLabel(item: { name: string; displayName?: string }): string {
+  return item.displayName && item.displayName.trim() ? item.displayName : item.name;
+}
+
+function matchTerms(layer: { name: string; displayName?: string }, terms: string[]): string[] {
+  const haystacks = [layer.name, layer.displayName ?? ""].map((v) => v.toLowerCase());
+  return terms.filter((term) => haystacks.some((h) => h.includes(term.toLowerCase())));
+}
+
 // PSD 图层数组顺序即绘制堆叠：psd-tools 底→顶遍历，数组靠前 = 最底层（先画）。
 // Slot.zOrder 约定 sort((a,b)=>a.zOrder-b.zOrder) 后画，由 StageRig.autoRigPsd 在建 slot 时
 // 用 index 直接赋值（首层最小 zOrder = 最先画 = 最底层），与 PS 合成顺序一致。
-export function layersToParts(result: PsdSplitResult): LayersToPartsResult {
+export function layersToParts(result: PsdSplitResult, fallbackFilters?: { excludeNames?: string[]; hideNames?: string[] }): LayersToPartsResult {
   const parts: AttachmentImage[] = [];
   const warnings: string[] = [];
   const total = result.parts.length;
+  const unmatchedFallback = new Set([...(fallbackFilters?.excludeNames ?? []), ...(fallbackFilters?.hideNames ?? [])]);
 
   result.parts.forEach((layer) => {
+    const excludeHits = matchTerms(layer, fallbackFilters?.excludeNames ?? []);
+    if (excludeHits.length > 0) {
+      excludeHits.forEach((term) => unmatchedFallback.delete(term));
+      warnings.push(`图层「${getFilteredLayerLabel(layer)}」命中过滤删除词「${excludeHits.join("、")}」，已跳过。`);
+      return;
+    }
+    const hideHits = matchTerms(layer, fallbackFilters?.hideNames ?? []);
+    if (hideHits.length > 0) {
+      hideHits.forEach((term) => unmatchedFallback.delete(term));
+      warnings.push(`图层「${getFilteredLayerLabel(layer)}」命中过滤隐藏词「${hideHits.join("、")}」，已跳过。`);
+      return;
+    }
     // 跳过不可见或全透明层（width/height 已由后端保证 >= 2）。
     if (!layer.visible) {
       warnings.push(`图层「${layer.displayName}」在 PSD 中隐藏，已跳过。`);
@@ -48,6 +70,15 @@ export function layersToParts(result: PsdSplitResult): LayersToPartsResult {
       },
     });
   });
+
+  const filtered = result.filtered;
+  if (filtered) {
+    if (filtered.excluded.length > 0) warnings.push(`过滤删除 ${filtered.excluded.length} 个图层：${filtered.excluded.map(getFilteredLayerLabel).join("、")}。`);
+    if (filtered.hidden.length > 0) warnings.push(`过滤隐藏 ${filtered.hidden.length} 个图层：${filtered.hidden.map(getFilteredLayerLabel).join("、")}。`);
+    if (filtered.unmatched.length > 0) warnings.push(`未匹配过滤词：${filtered.unmatched.join("、")}。`);
+  } else if (unmatchedFallback.size > 0) {
+    warnings.push(`未匹配过滤词：${Array.from(unmatchedFallback).join("、")}。`);
+  }
 
   if (parts.length === 0) {
     warnings.push("PSD 没有可用的可见像素图层。");

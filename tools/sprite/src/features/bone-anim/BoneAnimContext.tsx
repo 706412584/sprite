@@ -1,7 +1,7 @@
 // 骨骼动画局部状态：当前编辑的 Skeleton + 选中状态
 // 不放进 AppContext，避免污染主 state；其他 tab 不需要这些。
 
-import { createContext, ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Skeleton, createEmptySkeleton } from "./model/skeletonModel";
 import { CharacterPose, PoseDetectionResult } from "./model/poseDetector";
 
@@ -39,6 +39,19 @@ interface BoneAnimActions {
 
 type Ctx = BoneAnimState & BoneAnimActions;
 
+declare global {
+  interface Window {
+    __spriteBoneAnimDebug?: {
+      getSkeletonSnapshot: () => {
+        poseMode: CharacterPoseMode;
+        poseOverride: CharacterPose | null;
+        bones: Array<Pick<Skeleton["bones"][number], "name" | "x" | "y" | "rotation" | "scaleX" | "scaleY" | "length">>;
+        slots: Array<Pick<Skeleton["slots"][number], "name" | "zOrder" | "setupOffset" | "attachmentId">>;
+      };
+    };
+  }
+}
+
 const BoneAnimContextObj = createContext<Ctx | null>(null);
 
 export function BoneAnimProvider({ children }: { children: ReactNode }) {
@@ -58,14 +71,14 @@ export function BoneAnimProvider({ children }: { children: ReactNode }) {
   const setPoseDetection = useCallback((result: PoseDetectionResult | null) => {
     setPoseDetectionRaw(result);
     if (result) {
-      setPoseMode(result.pose === "sideLeft" || result.pose === "sideRight" ? "pseudoSide" : "front");
+      setPoseMode(result.pose === "sideLeft" || result.pose === "sideRight" ? "sidePending" : result.pose === "threeQuarter" ? "pseudoSide" : "front");
     }
   }, []);
 
   const setPoseOverride = useCallback((pose: CharacterPose | null) => {
     setPoseOverrideRaw(pose);
     if (pose) {
-      setPoseMode(pose === "sideLeft" || pose === "sideRight" ? "pseudoSide" : "front");
+      setPoseMode(pose === "sideLeft" || pose === "sideRight" ? "sidePending" : pose === "threeQuarter" ? "pseudoSide" : "front");
     }
   }, []);
 
@@ -84,6 +97,39 @@ export function BoneAnimProvider({ children }: { children: ReactNode }) {
     setPoseDetectionRaw(null);
     setPoseOverrideRaw(null);
   }, []);
+
+  useEffect(() => {
+    if (!(import.meta as { env?: { DEV?: boolean } }).env?.DEV) return;
+    const previousDebug = window.__spriteBoneAnimDebug;
+    window.__spriteBoneAnimDebug = {
+      getSkeletonSnapshot: () => ({
+        poseMode,
+        poseOverride,
+        bones: skeleton.bones.map((bone) => ({
+          name: bone.name,
+          x: bone.x,
+          y: bone.y,
+          rotation: bone.rotation,
+          scaleX: bone.scaleX,
+          scaleY: bone.scaleY,
+          length: bone.length,
+        })),
+        slots: skeleton.slots.map((slot) => ({
+          name: slot.name,
+          zOrder: slot.zOrder,
+          setupOffset: slot.setupOffset ? { ...slot.setupOffset } : undefined,
+          attachmentId: slot.attachmentId,
+        })),
+      }),
+    };
+    return () => {
+      if (previousDebug) {
+        window.__spriteBoneAnimDebug = previousDebug;
+      } else {
+        delete window.__spriteBoneAnimDebug;
+      }
+    };
+  }, [skeleton, poseMode, poseOverride]);
 
   const value = useMemo<Ctx>(
     () => ({

@@ -8,7 +8,7 @@
 // - 时间用秒（与 DragonBones 不同）
 // - 旋转用度（与 DragonBones rotateFrame 不同）
 
-import { Skeleton, Animation, BoneNode, Slot, AttachmentImage, Keyframe } from "../model/skeletonModel";
+import { Skeleton, Animation, BoneNode, Slot, AttachmentImage, Keyframe, safeName } from "../model/skeletonModel";
 import { PackedAtlas } from "./atlasPacker";
 
 const SPINE_VERSION = "4.1.00";
@@ -98,6 +98,10 @@ export interface SpineExport {
   fileBaseName: string;
 }
 
+export interface SpineExportOptions {
+  fileBaseName?: string;
+}
+
 function easingToCurve(easing: Keyframe["easing"]): SpineFrame["curve"] | undefined {
   switch (easing) {
     case "stepped":
@@ -151,14 +155,18 @@ function buildSkin(skeleton: Skeleton): SpineSkin {
     if (!att) continue;
     // pivot 是图像中心相对左上角的 0-1 比例。Spine 的 attachment x/y 是 attachment 中心相对 slot 原点的偏移，
     // 用 pivot 0.5 时为 0；偏离中心则给负 / 正偏移。取 (0.5 - pivot) * size。
-    const cx = (0.5 - att.pivot.x) * att.width;
-    const cy = -(0.5 - att.pivot.y) * att.height;
+    // setupOffset 来自编辑态（y 向下为正），Spine y 向上为正，因此叠加时需要取反。
+    const setupOffset = s.setupOffset;
+    const cx = (0.5 - att.pivot.x) * att.width + (setupOffset?.x ?? 0);
+    const cy = -(0.5 - att.pivot.y) * att.height - (setupOffset?.y ?? 0);
+    const rotation = setupOffset?.rotation ?? 0;
     const region: SpineAttachment = {
       width: att.width,
       height: att.height,
     };
     if (cx !== 0) region.x = cx;
     if (cy !== 0) region.y = cy;
+    if (rotation !== 0) region.rotation = rotation;
     skinAttachments[s.name] = { [att.name]: region };
   }
   return { name: "default", attachments: skinAttachments };
@@ -217,7 +225,7 @@ function buildAtlasText(baseName: string, atlas: PackedAtlas): string {
   // 第一行空行，之后是 png 文件名 + 元信息，再每个 region 名 + 字段
   const lines: string[] = [];
   lines.push("");
-  lines.push(`${baseName}_tex.png`);
+  lines.push(`${baseName}.png`);
   lines.push(`size: ${atlas.width},${atlas.height}`);
   lines.push("filter: Linear,Linear");
   lines.push("");
@@ -233,8 +241,8 @@ function buildAtlasText(baseName: string, atlas: PackedAtlas): string {
   return lines.join("\n");
 }
 
-export function exportSpineJson(skeleton: Skeleton, atlas: PackedAtlas): SpineExport {
-  const baseName = skeleton.name || "skeleton";
+export function exportSpineJson(skeleton: Skeleton, atlas: PackedAtlas, options?: SpineExportOptions): SpineExport {
+  const baseName = safeName(options?.fileBaseName || skeleton.name, "skeleton");
   const bones = buildBones(skeleton);
   const slots = buildSlots(skeleton);
   const skin = buildSkin(skeleton);

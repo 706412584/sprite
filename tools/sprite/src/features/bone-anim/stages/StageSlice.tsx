@@ -46,6 +46,10 @@ function mergeAttachmentsByName(prev: AttachmentImage[], nextParts: AttachmentIm
   return [...kept, ...next];
 }
 
+function parseNameFilters(value: string): string[] {
+  return Array.from(new Set(value.split(/[,\n\r]+/).map((v) => v.trim()).filter(Boolean)));
+}
+
 function evaluateBoneSliceQuality(items: SliceItem[], sourceSize: { width: number; height: number }, attachmentCount: number): BoneSliceQuality {
   const messages: string[] = [];
   const actions: string[] = [];
@@ -127,6 +131,9 @@ export function StageSlice({ onNext }: Props) {
   const [psdParts, setPsdParts] = useState<AttachmentImage[]>([]);
   const [psdAnalyzing, setPsdAnalyzing] = useState(false);
   const [psdMessage, setPsdMessage] = useState<{ tone: "info" | "warning"; text: string } | null>(null);
+  const [psdExcludeNames, setPsdExcludeNames] = useState("");
+  const [psdHideNames, setPsdHideNames] = useState("");
+  const [psdFilterStats, setPsdFilterStats] = useState<{ excluded: number; hidden: number; unmatched: string[] } | null>(null);
   const psdFileRef = useRef<HTMLInputElement | null>(null);
 
   const activeSource = preview?.processed_url || sourcePreviewUrl;
@@ -295,6 +302,7 @@ export function StageSlice({ onNext }: Props) {
     setParseMessage(null);
     setPsdParts([]);
     setPsdMessage(null);
+    setPsdFilterStats(null);
   }, [setSkeleton, setSelectedSlotId, setSelectedBoneId, setSelectedAnimationId]);
 
   // PSD 分层解析：选 .psd 文件 → base64 → 后端 psd-split → layersToParts（带绝对坐标，一比一还原）。
@@ -311,8 +319,16 @@ export function StageSlice({ onNext }: Props) {
         reader.onerror = () => reject(new Error("读取 PSD 文件失败"));
         reader.readAsDataURL(file);
       });
-      const result = await psdSplit({ dataUrl });
-      const { parts, warnings } = layersToParts(result);
+      const excludeNames = parseNameFilters(psdExcludeNames);
+      const hideNames = parseNameFilters(psdHideNames);
+      const result = await psdSplit({ dataUrl, excludeNames, hideNames, onlyVisible: false });
+      const { parts, warnings } = layersToParts(result, { excludeNames, hideNames });
+      const filterStats = {
+        excluded: result.filtered?.excluded.length ?? 0,
+        hidden: result.filtered?.hidden.length ?? 0,
+        unmatched: result.filtered?.unmatched ?? [],
+      };
+      setPsdFilterStats(filterStats);
       if (parts.length === 0) {
         setPsdParts([]);
         setPsdMessage({ tone: "warning", text: ["PSD 未解析出可用图层。", ...warnings].join(" ") });
@@ -321,7 +337,11 @@ export function StageSlice({ onNext }: Props) {
       setPsdParts(parts);
       setPsdMessage({
         tone: "info",
-        text: [`PSD 解析成功：${parts.length} 个图层（画布 ${result.width}×${result.height}）。已清空旧工作台。`, ...warnings].join(" "),
+        text: [
+          `PSD 解析成功：${parts.length} 个图层（画布 ${result.width}×${result.height}）。已清空旧工作台。`,
+          `过滤：删除 ${filterStats.excluded} / 隐藏 ${filterStats.hidden} / 未匹配 ${filterStats.unmatched.length}。`,
+          ...warnings,
+        ].join(" "),
       });
     } catch (err) {
       setPsdParts([]);
@@ -329,7 +349,7 @@ export function StageSlice({ onNext }: Props) {
     } finally {
       setPsdAnalyzing(false);
     }
-  }, [resetWorkbench]);
+  }, [resetWorkbench, psdExcludeNames, psdHideNames]);
 
   // PSD 图层导入：整批替换部件库（解析新 PSD 时已重置工作台，这里用全新部件覆盖，保留 sourceRect 供一比一还原）。
   const importPsdPartsToSkeleton = useCallback(() => {
@@ -450,6 +470,22 @@ export function StageSlice({ onNext }: Props) {
             <strong>PSD 分层导入</strong>
             <p className="muted">选择 PSD/PSB 文件后按图层一比一解析，保留原始坐标，再导入到骨架部件库。</p>
           </div>
+          <div className="bone-action-params">
+            <label>
+              <span>删除图层名（逗号或换行，导入前移除）</span>
+              <textarea value={psdExcludeNames} onChange={(e) => setPsdExcludeNames(e.target.value)} placeholder="如 shadow, guide, bg" />
+            </label>
+            <label>
+              <span>隐藏图层名（逗号或换行，不创建骨骼附件）</span>
+              <textarea value={psdHideNames} onChange={(e) => setPsdHideNames(e.target.value)} placeholder="如 reference, mask" />
+            </label>
+          </div>
+          {psdFilterStats && (
+            <p className="muted">
+              过滤报告：删除 {psdFilterStats.excluded}，隐藏 {psdFilterStats.hidden}，未匹配 {psdFilterStats.unmatched.length}
+              {psdFilterStats.unmatched.length > 0 ? `（${psdFilterStats.unmatched.join("、")}）` : ""}
+            </p>
+          )}
           <div className="export-actions">
             <button onClick={() => psdFileRef.current?.click()} disabled={psdAnalyzing} title="选择 PSD 分层立绘，按图层一比一拆件并保留原始坐标">
               {psdAnalyzing ? "解析 PSD 中…" : "选择 PSD 文件 / 解析分层"}
@@ -514,6 +550,7 @@ export function StageSlice({ onNext }: Props) {
         <strong>PSD 分层状态</strong>
         <div className="bone-stat-row">
           <span>已解析图层：{psdParts.length}</span>
+          <span>过滤：{psdFilterStats ? `删除 ${psdFilterStats.excluded} / 隐藏 ${psdFilterStats.hidden} / 未匹配 ${psdFilterStats.unmatched.length}` : "未启用"}</span>
           <span>已导入部件：{skeleton.attachments.filter((a) => a.sourceRect).length}</span>
           <span>原始坐标：{psdParts.some((p) => p.sourceRect) || skeleton.attachments.some((a) => a.sourceRect) ? "已保留" : "未检测到"}</span>
         </div>

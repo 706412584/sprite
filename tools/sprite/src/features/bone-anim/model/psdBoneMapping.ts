@@ -26,11 +26,11 @@ const RULES: MappingRule[] = [
   { keywords: ["backhair", "hairback", "rearhair"], bone: "head", sided: false, detailedBone: "hairBack" },
   { keywords: ["fronthair", "hairfront", "bang", "bangs", "hair", "headwear", "hat", "helmet", "horn"], bone: "head", sided: false, detailedBone: "hairFront" },
   { keywords: ["face", "head", "nose", "ear"], bone: "head", sided: false },
-  { keywords: ["handwear", "hand", "glove", "weapon", "wrist"], bone: "forearm", sided: true, detailedBone: "hand", unsidedBoneNames: ["chest", "torso"] },
-  { keywords: ["forearm"], bone: "forearm", sided: true, unsidedBoneNames: ["chest", "torso"] },
-  { keywords: ["upperarm", "shoulder", "sleeve", "arm"], bone: "upperArm", sided: true, unsidedBoneNames: ["chest", "torso"] },
-  { keywords: ["shoe", "boot", "foot", "feet"], bone: "shin", sided: true, detailedBone: "foot", unsidedBoneNames: ["waist", "torso"] },
-  { keywords: ["legwear", "shin", "calf"], bone: "shin", sided: true, unsidedBoneNames: ["waist", "torso"] },
+  { keywords: ["handwear", "hand", "glove", "weapon", "wrist", "nearhand", "farhand"], bone: "forearm", sided: true, detailedBone: "hand", unsidedBoneNames: ["chest", "torso"] },
+  { keywords: ["forearm", "neararm", "fararm"], bone: "forearm", sided: true, unsidedBoneNames: ["chest", "torso"] },
+  { keywords: ["upperarm", "nearupperarm", "farupperarm", "shoulder", "sleeve", "arm"], bone: "upperArm", sided: true, unsidedBoneNames: ["chest", "torso"] },
+  { keywords: ["shoe", "boot", "foot", "feet", "nearfoot", "farfoot"], bone: "shin", sided: true, detailedBone: "foot", unsidedBoneNames: ["waist", "torso"] },
+  { keywords: ["legwear", "shin", "calf", "nearleg", "farleg"], bone: "shin", sided: true, unsidedBoneNames: ["waist", "torso"] },
   { keywords: ["thigh", "leg"], bone: "thigh", sided: true, unsidedBoneNames: ["waist", "torso"] },
   { keywords: ["cape", "cloak"], bone: "torso", sided: false, detailedBone: "cape" },
   { keywords: ["skirt"], bone: "torso", sided: false, detailedBone: "skirt" },
@@ -51,8 +51,8 @@ export interface PsdBoneMatch {
 
 // 从图层名里识别左右：优先 -l / -r / _l / _r 后缀，其次 left/right 子串。返回 "L" | "R" | null。
 function detectSide(lower: string): "L" | "R" | null {
-  if (/(^|[-_])l($|[-_0-9])/.test(lower) || lower.includes("left")) return "L";
-  if (/(^|[-_])r($|[-_0-9])/.test(lower) || lower.includes("right")) return "R";
+  if (/(^|[-_])(l|near|front)($|[-_0-9])/.test(lower) || lower.includes("left") || lower.includes("near")) return "L";
+  if (/(^|[-_])(r|far|back)($|[-_0-9])/.test(lower) || lower.includes("right") || lower.includes("far")) return "R";
   return null;
 }
 
