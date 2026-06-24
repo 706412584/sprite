@@ -18,8 +18,15 @@ Thumbs.db
 
 # 开发调试产物
 .playwright-mcp/
+.tmp/
+.vscode/
+.kiro/
+.cursor/
 server_out.log
 psd_resp.json
 req_psd.json
 _test_*.png
 public/_test_*.png
+sqlite_mcp_server.db
+tmp_backend_verify.log
+*.db

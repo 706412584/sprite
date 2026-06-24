@@ -1,0 +1,5 @@
+# Sprite Video Lab — MCP server dependencies.
+# The MCP server (sprite_mcp_server.py) is a thin stdio wrapper over the local
+# HTTP backend (server.py). It only needs the MCP SDK; all image processing
+# deps live in requirements.txt / requirements-ai.txt and run inside server.py.
+mcp>=1.2.0
