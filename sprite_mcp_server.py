@@ -363,6 +363,81 @@ def open_in_file_browser(path: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Tools — Aseprite integration (optional)
+# ---------------------------------------------------------------------------
+@mcp.tool()
+def aseprite_status() -> dict:
+    """检查 Aseprite 是否可用，返回版本信息。"""
+    try:
+        from sprite_lab.integrations.aseprite import is_available, get_version
+        available = is_available()
+        version = get_version() if available else None
+        return {
+            "available": available,
+            "version": version,
+            "path": os.environ.get("ASEPRITE_PATH", "aseprite"),
+        }
+    except ImportError:
+        return {"available": False, "error": "Aseprite integration not installed"}
+
+
+@mcp.tool()
+def aseprite_export_sheet(
+    input_files: list[str],
+    output_path: str,
+    columns: int = 0,
+    pack: bool = True,
+    trim: bool = False,
+) -> dict:
+    """使用 Aseprite 导出 sprite sheet（需要 Aseprite 安装）。
+
+    input_files: 输入文件路径列表
+    output_path: 输出文件路径
+    columns: 列数（0=自动）
+    pack: 使用 bin packing 算法
+    trim: 裁剪透明边缘
+    """
+    try:
+        from sprite_lab.integrations.aseprite import export_sprite_sheet, is_available
+        if not is_available():
+            return {"error": "Aseprite not available. Install Aseprite and set ASEPRITE_PATH."}
+        return export_sprite_sheet(
+            input_files=input_files,
+            output_path=output_path,
+            columns=columns,
+            pack=pack,
+            trim=trim,
+        )
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def aseprite_batch_convert(
+    input_dir: str,
+    output_dir: str,
+    output_format: str = "png",
+) -> dict:
+    """使用 Aseprite 批量转换格式（需要 Aseprite 安装）。
+
+    input_dir: 输入目录
+    output_dir: 输出目录
+    output_format: 输出格式（png, gif, webp 等）
+    """
+    try:
+        from sprite_lab.integrations.aseprite import batch_convert, is_available
+        if not is_available():
+            return {"error": "Aseprite not available. Install Aseprite and set ASEPRITE_PATH."}
+        return batch_convert(
+            input_dir=input_dir,
+            output_dir=output_dir,
+            output_format=output_format,
+        )
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
 # Heartbeat — lets the app's Runtime panel show MCP startup/liveness status.
 # ---------------------------------------------------------------------------
 _HEARTBEAT_INTERVAL_S = 10.0
