@@ -38,6 +38,12 @@ def _dbg(msg: str) -> None:
     print(f"[DBG] {msg}", file=sys.stderr, flush=True)
 
 from PIL import Image, ImageChops, ImageFilter
+try:
+    from rectpack import newPacker
+    from rectpack.maxrects import MaxRectsBssf
+    HAS_RECTPACK = True
+except ImportError:
+    HAS_RECTPACK = False
 
 # --- Migrated to sprite_lab package (single source of truth). ---
 # Pure helpers, validators and isolated imaging routines now live in modules.
@@ -2788,18 +2794,69 @@ def export_job(job_id: str, selected_indices: list[int], sheet_columns: int, vid
         cell_width = max(cell_width, frame.size[0])
         cell_height = max(cell_height, frame.size[1])
         frame.close()
-    columns = max(1, sheet_columns or round(math.sqrt(len(copied_paths))))
-    rows = math.ceil(len(copied_paths) / columns)
-    sheet = Image.new("RGBA", (columns * cell_width, rows * cell_height), (0, 0, 0, 0))
-    for index, frame_path in enumerate(copied_paths):
-        row = index // columns
-        column = index % columns
-        frame = open_rgba_image(frame_path)
-        frame_width, frame_height = frame_sizes[index]
-        offset_x = column * cell_width + (cell_width - frame_width) // 2
-        offset_y = row * cell_height + (cell_height - frame_height) // 2
-        sheet.paste(frame, (offset_x, offset_y), frame)
-        frame.close()
+
+    # 使用 rectpack 进行更紧凑的 bin packing
+    if HAS_RECTPACK and len(copied_paths) > 1:
+        packer = newPacker(mode=1, bin_algo=2, pack_algo=MaxRectsBssf, rotation=False)
+        padding = 2
+        for idx, (w, h) in enumerate(frame_sizes):
+            packer.add_rect(w + padding, h + padding, idx)
+        # 计算最优 bin 尺寸
+        total_area = sum((w + padding) * (h + padding) for w, h in frame_sizes)
+        max_w = max(w for w, h in frame_sizes) + padding
+        max_h = max(h for w, h in frame_sizes) + padding
+        # 尝试不同的 bin 尺寸
+        best_sheet = None
+        best_rects = None
+        for cols in range(1, len(copied_paths) + 1):
+            rows = math.ceil(len(copied_paths) / cols)
+            bin_w = cols * cell_width + padding * cols
+            bin_h = rows * cell_height + padding * rows
+            bin_w = max(bin_w, max_w)
+            bin_h = max(bin_h, max_h)
+            test_packer = newPacker(mode=1, bin_algo=2, pack_algo=MaxRectsBssf, rotation=False)
+            for idx, (w, h) in enumerate(frame_sizes):
+                test_packer.add_rect(w + padding, h + padding, idx)
+            test_packer.add_bin(bin_w, bin_h)
+            test_packer.pack()
+            if len(test_packer[0]) == len(copied_paths):
+                if best_sheet is None or (bin_w * bin_h < best_sheet[0] * best_sheet[1]):
+                    best_sheet = (bin_w, bin_h)
+                    best_rects = list(test_packer[0])
+        if best_sheet and best_rects:
+            sheet = Image.new("RGBA", best_sheet, (0, 0, 0, 0))
+            for rect in best_rects:
+                idx = rect.rid
+                frame = open_rgba_image(copied_paths[idx])
+                sheet.paste(frame, (rect.x, rect.y), frame)
+                frame.close()
+        else:
+            # fallback to simple grid
+            columns = max(1, sheet_columns or round(math.sqrt(len(copied_paths))))
+            rows = math.ceil(len(copied_paths) / columns)
+            sheet = Image.new("RGBA", (columns * cell_width, rows * cell_height), (0, 0, 0, 0))
+            for index, frame_path in enumerate(copied_paths):
+                row = index // columns
+                column = index % columns
+                frame = open_rgba_image(frame_path)
+                offset_x = column * cell_width
+                offset_y = row * cell_height
+                sheet.paste(frame, (offset_x, offset_y), frame)
+                frame.close()
+    else:
+        # 简单网格布局
+        columns = max(1, sheet_columns or round(math.sqrt(len(copied_paths))))
+        rows = math.ceil(len(copied_paths) / columns)
+        sheet = Image.new("RGBA", (columns * cell_width, rows * cell_height), (0, 0, 0, 0))
+        for index, frame_path in enumerate(copied_paths):
+            row = index // columns
+            column = index % columns
+            frame = open_rgba_image(frame_path)
+            frame_width, frame_height = frame_sizes[index]
+            offset_x = column * cell_width + (cell_width - frame_width) // 2
+            offset_y = row * cell_height + (cell_height - frame_height) // 2
+            sheet.paste(frame, (offset_x, offset_y), frame)
+            frame.close()
     sheet_path = None
     webp_sheet_path = None
     sheet_pixel_size: tuple[int, int] | None = None
