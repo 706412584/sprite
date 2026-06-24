@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+*.pyo
+
+.venv/
+venv/
+env/
+
+node_modules/
+dist/
+release/
+work/
+*.tsbuildinfo
+
+.DS_Store
+Thumbs.db
+*.lnk
+
+# 开发调试产物
+.playwright-mcp/
+server_out.log
+psd_resp.json
+req_psd.json
+_test_*.png
+public/_test_*.png
