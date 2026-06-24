@@ -4,6 +4,7 @@ import { RuntimePanel } from "@/features/settings/RuntimePanel";
 import { SpriteFlowPanel } from "@/spriteflow/SpriteFlowPanel";
 import { WorkflowPanel } from "@/features/workflow/WorkflowPanel";
 import { UiSmartSlicePanel } from "@/features/smart-slice/UiSmartSlicePanel";
+import { BgInpaintPanel } from "@/features/bg-inpaint/BgInpaintPanel";
 import { BoneAnimPanel } from "@/features/bone-anim/BoneAnimPanel";
 import { QuantizePanel } from "@/features/quantize/QuantizePanel";
 import { NineSlicePanel } from "@/features/nine-slice/NineSlicePanel";
@@ -11,11 +12,12 @@ import { PixelFontPanel } from "@/features/pixel-font/PixelFontPanel";
 import { NormalMapPanel } from "@/features/normal-map/NormalMapPanel";
 import { FrameDiffPanel } from "@/features/frame-diff/FrameDiffPanel";
 
-type WorkspaceTab = "workflow" | "smart-slice" | "bone-anim" | "spriteflow" | "quantize" | "nine-slice" | "pixel-font" | "normal-map" | "frame-diff" | "runtime";
+type WorkspaceTab = "workflow" | "smart-slice" | "bg-inpaint" | "bone-anim" | "spriteflow" | "quantize" | "nine-slice" | "pixel-font" | "normal-map" | "frame-diff" | "runtime";
 
 const tabs: Array<{ key: WorkspaceTab; label: string }> = [
   { key: "workflow", label: "制作流水线" },
   { key: "smart-slice", label: "UI 智能切片" },
+  { key: "bg-inpaint", label: "背景补全" },
   { key: "bone-anim", label: "骨骼动画" },
   { key: "spriteflow", label: "SpriteFlow 角色序列帧" },
   { key: "quantize", label: "像素量化" },
@@ -64,7 +66,15 @@ function AppInner() {
               key={tab.key}
               href={`#${tab.key}`}
               className={activeTab === tab.key ? "active" : ""}
-              onClick={(e) => { e.preventDefault(); setActiveTab(tab.key); }}
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveTab(tab.key);
+                // 同步地址栏 hash，避免 activeTab 与 location.hash 发散：
+                // 否则之后跳到"看似已是当前 hash"的地址不会触发 hashchange，tab 卡住。
+                if (window.location.hash.replace(/^#/, "") !== tab.key) {
+                  window.history.replaceState(null, "", `#${tab.key}`);
+                }
+              }}
             >
               {tab.label}
             </a>
@@ -96,6 +106,7 @@ function AppInner() {
           <div className="workspace-main full-width">
             {activeTab === "workflow" && <WorkflowPanel />}
             {activeTab === "smart-slice" && <UiSmartSlicePanel />}
+            {activeTab === "bg-inpaint" && <BgInpaintPanel />}
             {activeTab === "bone-anim" && <BoneAnimPanel />}
             {activeTab === "spriteflow" && <SpriteFlowPanel />}
             {activeTab === "quantize" && <QuantizePanel />}

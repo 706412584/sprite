@@ -5,9 +5,11 @@ sprite_lab.routes.registry. server.py imports `sprite_lab.routes` once
 to populate the registry before instantiating AppHandler.
 """
 from . import (  # noqa: F401
+    bg_inpaint,
     env_models,
     imports,
     jobs_route,
+    mcp_status,
     misc,
     pose,
     preview_alpha,

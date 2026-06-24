@@ -22,6 +22,7 @@ import {
   smartSelectJobFrames,
   startProcessVideo,
   uploadFile,
+  type BgInpaintRect,
 } from "@/api/spriteApi";
 import type {
   ExportCompressionSettings,
@@ -154,6 +155,7 @@ export interface StoreState {
   operationProgress: number | null;
   taskLogs: string[];
   canCancelTask: boolean;
+  sharedSliceRects: BgInpaintRect[];
 }
 
 export interface StoreActions {
@@ -197,6 +199,7 @@ export interface StoreActions {
   readSelectedLog: (fileName?: string) => Promise<void>;
   openExportDir: () => Promise<void>;
   cancelCurrentTask: () => void;
+  setSharedSliceRects: (rects: BgInpaintRect[]) => void;
 
   // bootstrap (called once by AppProvider)
   bootstrap: () => void;
@@ -300,6 +303,7 @@ export const useStore = create<Store>((set, get) => {
     operationProgress: null,
     taskLogs: [],
     canCancelTask: false,
+    sharedSliceRects: [],
 
     // ----- simple setters -----
     setLocalPath: (path) => set({ localPath: path }),
@@ -321,6 +325,7 @@ export const useStore = create<Store>((set, get) => {
     setPreviewReverse: (reverse) => set({ previewReverse: reverse }),
     setPreviewPlaying: (playing) => set({ previewPlaying: playing }),
     setPreviewIntervalMs: (ms) => set({ previewIntervalMs: ms }),
+    setSharedSliceRects: (rects) => set({ sharedSliceRects: rects }),
 
     cancelCurrentTask: () => {
       if (currentTaskAbort && !currentTaskAbort.signal.aborted) {

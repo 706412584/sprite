@@ -1,6 +1,6 @@
 {
   "name": "sprite-video-lab-desktop",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "private": true,
   "description": "AI sprite and VFX processing lab with React UI and local Python runtime.",
   "main": "electron/main.cjs",
@@ -44,8 +44,10 @@
       "build/icon.ico",
       "server.py",
       "sprite_lab/**/*",
+      "sprite_mcp_server.py",
       "requirements.txt",
       "requirements-ai.txt",
+      "requirements-mcp.txt",
       "setup_ai_runtime.bat",
       "start_sprite_video_lab.bat",
       "start_sprite_video_lab_portable.bat",
@@ -67,6 +69,7 @@
     "asarUnpack": [
       "server.py",
       "sprite_lab/**/*",
+      "sprite_mcp_server.py",
       "requirements*.txt",
       "setup_ai_runtime.bat",
       "runtime/**/*"

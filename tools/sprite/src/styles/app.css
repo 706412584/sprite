@@ -117,7 +117,8 @@ input[type="color"] {
 
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -125,6 +126,7 @@ input[type="color"] {
   flex-direction: column;
   width: 292px;
   padding: 22px;
+  overflow-y: auto;
   border-right: 1px solid rgba(139, 166, 217, 0.16);
   background: rgba(5, 10, 22, 0.72);
   backdrop-filter: blur(18px);
@@ -202,6 +204,7 @@ input[type="color"] {
   flex: 1;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .topbar {
@@ -236,6 +239,7 @@ input[type="color"] {
   grid-template-columns: 1fr minmax(380px, 480px);
   gap: 18px;
   flex: 1;
+  min-height: 0;
   padding: 22px 28px;
   overflow-y: auto;
 }
@@ -1289,6 +1293,18 @@ button.env-dl-link {
   background: rgba(14, 116, 144, 0.16);
 }
 
+/* 已完成步骤：明显的绿色高亮（导入图片后第 1 步立即点亮） */
+.workflow-stepper a.done:not(.active) {
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #bbf7d0;
+  background: rgba(22, 101, 52, 0.2);
+}
+
+.workflow-stepper a.done span {
+  color: #052e16;
+  background: #22c55e;
+}
+
 .workflow-stepper span {
   display: grid;
   place-items: center;
@@ -1380,6 +1396,18 @@ button.env-dl-link {
 .tool-step.done b,
 .tool-step.active b {
   background: #93c5fd;
+}
+
+/* 已完成步骤：绿色高亮，与建议/激活态区分 */
+.tool-step.done:not(.active) {
+  border-color: rgba(34, 197, 94, 0.45);
+  color: #bbf7d0;
+  background: rgba(22, 101, 52, 0.18);
+}
+
+.tool-step.done b {
+  color: #052e16;
+  background: #22c55e;
 }
 
 .tool-checklist {
@@ -2041,4 +2069,144 @@ button.env-dl-link {
 .frame-diff-mad {
   font-size: 0.7rem;
   font-family: monospace;
+}
+
+/* 统一工具页壳（ToolPageShell）：集中标题/副标题/状态/操作的布局，
+   各工具面板复用它，避免每个面板各写一套头部与间距。 */
+.tool-page-shell {
+  display: grid;
+  gap: 18px;
+  min-height: auto;
+  padding: 18px;
+  border: 1px solid rgba(139, 166, 217, 0.16);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.72);
+  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.22);
+}
+
+.tool-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tool-page-heading {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tool-page-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tool-page-title-row h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.tool-page-heading p {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.tool-page-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tool-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.tool-page-body {
+  display: grid;
+  gap: 16px;
+}
+
+/* 状态徽标（如 MCP 运行状态），与 env-status-badge 同语义但更通用 */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.status-badge.ok {
+  color: #86efac;
+  background: rgba(22, 101, 52, 0.35);
+  border-color: rgba(134, 239, 172, 0.3);
+}
+
+.status-badge.idle {
+  color: #fcd34d;
+  background: rgba(120, 53, 15, 0.35);
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.status-badge.off {
+  color: #fca5a5;
+  background: rgba(127, 29, 29, 0.35);
+  border-color: rgba(252, 165, 165, 0.3);
+}
+
+/* ---- Background Inpaint Panel ---- */
+.bg-inpaint-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bg-inpaint-compare {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-top: 12px;
+}
+
+.bg-inpaint-compare figure {
+  flex: 1;
+  margin: 0;
+}
+
+.bg-inpaint-compare img {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 4px;
+}
+
+.bg-inpaint-compare figcaption {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary, #999);
+  margin-top: 4px;
+}
+
+.bg-inpaint-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+}
+
+.bg-inpaint-progress progress {
+  width: 100%;
+  max-width: 400px;
 }

@@ -73,6 +73,22 @@ export function getModelStatus() {
   return requestJson<{ models: ModelStatusInfo[]; cache_dir: string; loaded_count: number }>("/api/models/status");
 }
 
+export interface McpStatusInfo {
+  state: "running" | "ready" | "unavailable";
+  running: boolean;
+  sdk_installed: boolean;
+  script_exists: boolean;
+  script_path: string;
+  api_base: string | null;
+  backend_api_base: string | null;
+  seconds_since_heartbeat: number | null;
+  last_heartbeat: { pid?: number; tool_count?: number; api_base?: string; transport?: string; received_at?: number } | null;
+}
+
+export function getMcpStatus() {
+  return requestJson<McpStatusInfo>("/api/mcp/status");
+}
+
 export async function importPath(path: string) {
   const result = await requestJson<{ upload: UploadInfo }>("/api/import-path", {
     method: "POST",
@@ -314,6 +330,35 @@ export function downloadModel(modelKey: string) {
   return requestJson<{ task: TaskProgressInfo<{ model_key: string; cache_path: string; after: EnvCheckResult }> }>("/api/models/download", {
     method: "POST",
     body: JSON.stringify({ model_key: modelKey }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Background inpainting
+// ---------------------------------------------------------------------------
+
+export interface BgInpaintRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface BgInpaintResult {
+  result_data_url: string;
+  mask_data_url: string;
+  width: number;
+  height: number;
+}
+
+export function startBgInpaint(imageDataUrl: string, rects: BgInpaintRect[], aiDevice = "auto") {
+  return requestJson<{ task: TaskProgressInfo<BgInpaintResult> }>("/api/bg-inpaint", {
+    method: "POST",
+    body: JSON.stringify({
+      image_data_url: imageDataUrl,
+      rects,
+      ai_device: aiDevice,
+    }),
   });
 }
 

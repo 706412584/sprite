@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import uuid
 import zipfile
 from datetime import datetime
@@ -29,6 +30,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
+from collections.abc import Callable
+
+def _dbg(msg: str) -> None:
+    """调试日志：输出到 stderr。"""
+    import sys
+    print(f"[DBG] {msg}", file=sys.stderr, flush=True)
 
 from PIL import Image, ImageChops, ImageFilter
 
@@ -274,6 +281,7 @@ _BIREFNET_MODEL_CACHE: dict[tuple[str, str], object] = {}
 _POSE_MODEL_CACHE: dict[str, object] = {}
 _HUMAN_PARSE_MODEL_CACHE: dict[str, object] = {}
 _CORRIDORKEY_ENGINE_CACHE: dict[tuple[str, str], object] = {}
+_LAMA_MODEL_CACHE: dict[str, object] = {}
 
 
 def ensure_runtime_dirs() -> None:
@@ -331,6 +339,32 @@ def configure_ai_model_cache() -> Path:
     os.environ.setdefault("HF_XET_CACHE", str(cache_dir / "xet"))
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     return cache_dir
+
+
+def hf_repo_cache_dir(cache_dir: Path, repo_id: str) -> Path:
+    """规范的 HF 仓库缓存目录：<cache_dir>/hub/models--<owner>--<name>。
+
+    这是 from_pretrained / 标准 HF 缓存使用的布局，也是检测与下载应当一致的位置。
+    """
+    return cache_dir / "hub" / f"models--{repo_id.replace('/', '--')}"
+
+
+def hf_repo_cached(cache_dir: Path, repo_id: str) -> tuple[bool, Path]:
+    """判断某 HF 仓库是否已缓存，返回 (是否已缓存, 规范缓存目录)。
+
+    同时兼容历史错位：早期下载把 snapshot_download(cache_dir=...) 写到了
+    <cache_dir>/models--<repo>（缺少 hub 层）。这里两个位置都认，避免已下载的
+    模型被反复判为"未下载"。
+    """
+    name = f"models--{repo_id.replace('/', '--')}"
+    primary = cache_dir / "hub" / name
+    for candidate in (primary, cache_dir / name):
+        try:
+            if candidate.exists() and any(candidate.iterdir()):
+                return True, primary
+        except OSError:
+            continue
+    return False, primary
 
 
 def watch_targets() -> list[Path]:
@@ -683,6 +717,137 @@ def decode_data_url_image(data_url: str) -> Image.Image:
     binary = base64.b64decode(raw)
     with Image.open(BytesIO(binary)) as image:
         return image.convert("RGBA")
+
+
+# ---------------------------------------------------------------------------
+# LaMa inpainting
+# ---------------------------------------------------------------------------
+
+def import_lama_dependencies():
+    """懒加载 torch，镜像 import_ai_matte_dependencies 的缺包报错风格。"""
+    configure_ai_model_cache()
+    try:
+        import torch  # noqa: F401
+    except ModuleNotFoundError as exc:
+        missing_name = getattr(exc, "name", "torch")
+        raise RuntimeError(
+            f"{missing_name} is not installed. Run: python -m pip install -r requirements-ai.txt"
+        ) from exc
+
+
+def load_lama_model(requested_device: str, task_id: str = ""):
+    """加载并缓存 LaMa inpainting 模型。"""
+    import_lama_dependencies()
+    import torch
+
+    device = resolve_ai_runtime_device(torch, requested_device)
+    if device in _LAMA_MODEL_CACHE:
+        return _LAMA_MODEL_CACHE[device], device
+
+    try:
+        from simple_lama_inpainting import SimpleLama
+    except ModuleNotFoundError:
+        SimpleLama = None
+
+    from sprite_lab.tasks.runner import update_task_progress
+    update_task_progress(task_id, 30, "正在加载背景补全引擎…")
+
+    if SimpleLama is not None:
+        model = SimpleLama()
+        _LAMA_MODEL_CACHE[device] = ("lama", model)
+        return _LAMA_MODEL_CACHE[device], device
+
+    _LAMA_MODEL_CACHE[device] = ("opencv", None)
+    return _LAMA_MODEL_CACHE[device], device
+
+
+def create_mask_from_rects(width: int, height: int, rects: list[dict]) -> Image.Image:
+    """根据矩形框列表生成二值遮罩。白色(255)=待填充区域，黑色(0)=保留区域。"""
+    from PIL import ImageDraw
+
+    mask = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(mask)
+    for rect in rects:
+        x, y, w, h = rect["x"], rect["y"], rect["w"], rect["h"]
+        draw.rectangle([x, y, x + w, y + h], fill=255)
+    return mask
+
+
+def run_bg_inpaint(
+    image_data_url: str = "",
+    upload_id: str = "",
+    rects: list[dict] | None = None,
+    ai_device: str = "auto",
+    task_id: str = "",
+) -> dict:
+    """执行背景补全：优先 LaMa，缺失时回退到 OpenCV inpaint。"""
+    from sprite_lab.tasks.runner import update_task_progress
+    import numpy as np
+    import cv2
+
+    update_task_progress(task_id, 10, "正在准备图像和遮罩…")
+
+    # 解析输入图片
+    data_url = str(image_data_url or "").strip()
+    if data_url:
+        image = decode_data_url_image(data_url)
+    else:
+        uid = str(upload_id or "").strip()
+        if not uid:
+            raise ValueError("需要 image_data_url 或 upload_id")
+        from sprite_lab.storage.uploads import source_media_entry
+        from sprite_lab.imaging.canvas import open_rgba_image
+        path, media_type = source_media_entry(uid)
+        if not str(media_type).startswith("image"):
+            raise ValueError("仅支持图片来源")
+        image = open_rgba_image(path)
+
+    if rects is None:
+        rects = []
+
+    width, height = image.size
+    mask = create_mask_from_rects(width, height, rects)
+
+    update_task_progress(task_id, 20, "正在加载背景补全引擎…")
+
+    model_info, device = load_lama_model(ai_device, task_id)
+    engine = model_info[0]
+
+    update_task_progress(task_id, 50, "正在执行背景补全推理…")
+
+    if engine == "lama":
+        result_image = model_info[1](image.convert("RGB"), mask).convert("RGBA")
+    else:
+        rgba = image.convert("RGBA")
+        src = np.array(rgba.convert("RGB"), dtype=np.uint8)
+        mask_np = np.array(mask, dtype=np.uint8)
+        result_bgr = cv2.inpaint(src[:, :, ::-1], mask_np, 3, cv2.INPAINT_TELEA)
+        result_rgb = Image.fromarray(result_bgr[:, :, ::-1]).convert("RGBA")
+        result_rgb.putalpha(rgba.getchannel("A"))
+        result_image = result_rgb
+
+    update_task_progress(task_id, 85, "正在编码结果图像…")
+
+    # 结果转 base64 data URL
+    buf = BytesIO()
+    result_image.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    result_data_url = f"data:image/png;base64,{b64}"
+
+    # 遮罩预览（调试用）
+    mask_buf = BytesIO()
+    mask.save(mask_buf, format="PNG")
+    mask_b64 = base64.b64encode(mask_buf.getvalue()).decode("ascii")
+    mask_data_url = f"data:image/png;base64,{mask_b64}"
+
+    update_task_progress(task_id, 95, "背景补全完成。")
+
+    return {
+        "result_data_url": result_data_url,
+        "mask_data_url": mask_data_url,
+        "width": width,
+        "height": height,
+    }
 
 
 def import_corridorkey_dependencies():
@@ -1086,6 +1251,7 @@ def apply_matte_pipeline(
     decontaminate_radius: int = 2,
     decontaminate_strength: float = 1.0,
     pipeline: list[str] | None = None,
+    on_progress: Callable[[int, str], None] | None = None,
 ) -> tuple[list[Image.Image], tuple[int, int, int], dict]:
     if not raw_images:
         raise ValueError("no frames to matte")
@@ -1131,6 +1297,8 @@ def apply_matte_pipeline(
     if mode == "none" and not pipeline:
         return raw_images, key_rgb, matte_info
 
+    _dbg(f"apply_matte_pipeline 开始: mode={mode}, pipeline={pipeline}, 帧数={len(raw_images)}, on_progress={'有' if on_progress else '无'}")
+
     # 新管线路径：pipeline 非空时走 alpha 合并逻辑
     if pipeline and len(pipeline) > 0:
         matte_info["mode"] = "+".join(pipeline)
@@ -1140,9 +1308,9 @@ def apply_matte_pipeline(
         corridor_info: dict | None = None
         pipe_has_corridorkey = "corridorkey" in pipeline
 
-        for raw_image in raw_images:
+        for raw_index, raw_image in enumerate(raw_images):
             accumulated_alpha: Image.Image | None = None
-            for step_mode in pipeline:
+            for step_index, step_mode in enumerate(pipeline):
                 step_alpha: Image.Image | None = None
                 if step_mode == "birefnet":
                     step_alpha, ai_info = birefnet_alpha_mask(raw_image, ai_model, ai_device, ai_resolution)
@@ -1188,9 +1356,11 @@ def apply_matte_pipeline(
                 if step_alpha is not None:
                     accumulated_alpha = ImageChops.lighter(accumulated_alpha, step_alpha) if accumulated_alpha else step_alpha
 
-            if accumulated_alpha is None:
-                keyed_frames.append(raw_image.copy())
-                continue
+                if on_progress:
+                    done_units = (raw_index * len(pipeline)) + (step_index + 1)
+                    total_units = max(1, len(raw_images) * len(pipeline))
+                    percent = 40 + (done_units * 23 // total_units)
+                    on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
 
             # 应用 halo_pixels MinFilter
             if matte_info["halo_pixels"] > 0:
@@ -1218,7 +1388,7 @@ def apply_matte_pipeline(
     if mode in {"chroma", "corridorkey"}:
         keyed_frames = []
         corridor_info: dict | None = None
-        for raw_image in raw_images:
+        for raw_index, raw_image in enumerate(raw_images):
             chroma_frame = chroma_key_frame(
                 image=raw_image,
                 key_rgb=key_rgb,
@@ -1238,6 +1408,9 @@ def apply_matte_pipeline(
                 keyed_frames.append(refined_frame)
             else:
                 keyed_frames.append(chroma_frame)
+            if on_progress:
+                percent = 40 + ((raw_index + 1) * 23 // max(1, len(raw_images)))
+                on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
         if corridor_info:
             matte_info.update(corridor_info)
         if matte_info["decontaminate_enabled"]:
@@ -1245,8 +1418,12 @@ def apply_matte_pipeline(
         return keyed_frames, key_rgb, matte_info
 
     if mode == "spriteflow":
+        _dbg(f"进入 spriteflow 分支: 帧数={len(raw_images)}")
         keyed_frames: list[Image.Image] = []
-        for raw_image in raw_images:
+        for raw_index, raw_image in enumerate(raw_images):
+            if on_progress:
+                percent = 40 + ((raw_index + 1) * 23 // max(1, len(raw_images)))
+                on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
             keyed_frame = spriteflow_key_frame(
                 raw_image.convert("RGBA"),
                 key_rgb,
@@ -1267,8 +1444,12 @@ def apply_matte_pipeline(
         return keyed_frames, key_rgb, matte_info
 
     if mode == "luma":
+        _dbg(f"进入 luma 分支: 帧数={len(raw_images)}")
         keyed_frames: list[Image.Image] = []
-        for raw_image in raw_images:
+        for raw_index, raw_image in enumerate(raw_images):
+            if on_progress:
+                percent = 40 + ((raw_index + 1) * 23 // max(1, len(raw_images)))
+                on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
             alpha = luminance_alpha_mask(
                 raw_image,
                 matte_info["luma_black"],
@@ -1287,10 +1468,14 @@ def apply_matte_pipeline(
             keyed_frames = [edge_decontaminate(f, matte_info["decontaminate_radius"], matte_info["decontaminate_strength"]) for f in keyed_frames]
         return keyed_frames, key_rgb, matte_info
 
+    _dbg(f"进入 birefnet 默认分支: mode={mode}, 帧数={len(raw_images)}")
     keyed_frames: list[Image.Image] = []
     ai_info: dict | None = None
     corridor_info: dict | None = None
-    for raw_image in raw_images:
+    for raw_index, raw_image in enumerate(raw_images):
+        if on_progress:
+            percent = 40 + ((raw_index + 1) * 23 // max(1, len(raw_images)))
+            on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
         ai_alpha, ai_info = birefnet_alpha_mask(raw_image, ai_model, ai_device, ai_resolution)
         if matte_info["halo_pixels"] > 0:
             filter_size = (matte_info["halo_pixels"] * 2) + 1
@@ -1788,6 +1973,7 @@ def process_video_to_job(
     raw_images = [open_rgba_image(path) for path in raw_paths]
 
     update_task_progress(task_id, 40, "执行抠图流水线。")
+    _dbg(f"process_video_to_job: 调用 apply_matte_pipeline 前, 帧数={len(raw_images)}, task_id={task_id}")
     keyed_frames, key_rgb, matte_info = apply_matte_pipeline(
         raw_images=raw_images,
         chroma_enabled=chroma_enabled,
@@ -1817,7 +2003,9 @@ def process_video_to_job(
         decontaminate_radius=decontaminate_radius,
         decontaminate_strength=decontaminate_strength,
         pipeline=pipeline,
+        on_progress=lambda percent, message: update_task_progress(task_id, percent, message),
     )
+    _dbg(f"process_video_to_job: apply_matte_pipeline 完成, 结果帧数={len(keyed_frames)}")
 
     update_task_progress(task_id, 64, "稳定裁切并缩放帧。")
     rendered_frames, bboxes, scale, canvas_size = stable_resize_frames(
@@ -2750,8 +2938,7 @@ def env_check_payload() -> dict:
     cache_dir = configure_ai_model_cache()
     model_items = []
     for key, repo_id in AI_MATTE_MODEL_REPOS.items():
-        repo_dir = cache_dir / "hub" / f"models--{repo_id.replace('/', '--')}"
-        cached = repo_dir.exists() and any(repo_dir.iterdir())
+        cached, repo_dir = hf_repo_cached(cache_dir, repo_id)
         model_items.append({
             "key": key,
             "label": AI_MATTE_MODEL_LABELS.get(key, key),
@@ -2840,10 +3027,12 @@ def install_model_from_download(model_key: str, task_id: str = "") -> dict:
     normalized_key = normalize_ai_model_key(model_key)
     repo_id = AI_MATTE_MODEL_REPOS[normalized_key]
     cache_dir = configure_ai_model_cache()
-    repo_dir = cache_dir / "hub" / f"models--{repo_id.replace('/', '--')}"
+    label = AI_MATTE_MODEL_LABELS.get(normalized_key, normalized_key)
+
+    already_cached, repo_dir = hf_repo_cached(cache_dir, repo_id)
     install_resource_path_guard(repo_dir, cache_dir)
-    if repo_dir.exists() and any(repo_dir.iterdir()):
-        update_task_progress(task_id, 100, f"{AI_MATTE_MODEL_LABELS.get(normalized_key, normalized_key)} 已缓存。")
+    if already_cached:
+        update_task_progress(task_id, 100, f"{label} 已缓存。")
         return {"model_key": normalized_key, "cache_path": str(repo_dir), "after": env_check_payload()}
 
     try:
@@ -2851,21 +3040,41 @@ def install_model_from_download(model_key: str, task_id: str = "") -> dict:
     except ModuleNotFoundError as exc:
         raise RuntimeError("huggingface_hub 未安装。请先在环境检测中安装缺失 Python 包。") from exc
 
+    # 进度条默认写 stderr；打包版 stderr 被 Electron 重定向到日志管道，
+    # Windows 下频繁回车写入可能触发 [Errno 22]，所以关掉进度条。
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
+    # 关键：下载目标用 <cache_dir>/hub，与检测路径（hf_repo_cached 的规范位置）
+    # 以及 from_pretrained 的 HUGGINGFACE_HUB_CACHE 完全一致，避免下完仍判"未下载"。
+    hub_cache = cache_dir / "hub"
+    hub_cache.mkdir(parents=True, exist_ok=True)
+
     update_task_progress(task_id, 15, "开始下载 HuggingFace 模型快照。")
     append_task_log(task_id, f"仓库：{repo_id}")
-    snapshot_path = snapshot_download(
-        repo_id=repo_id,
-        cache_dir=str(cache_dir),
-        local_files_only=False,
-        resume_download=True,
-    )
-    snapshot_resolved = install_resource_path_guard(Path(snapshot_path), cache_dir)
-    update_task_progress(task_id, 90, "模型快照下载完成，正在验证缓存。")
-    if not any(snapshot_resolved.iterdir()):
-        raise RuntimeError(f"模型快照为空：{snapshot_resolved}")
-    append_task_log(task_id, f"已安装到 {snapshot_resolved}")
+    append_task_log(task_id, f"缓存目录：{hub_cache}")
+
+    download_error: Exception | None = None
+    try:
+        snapshot_download(repo_id=repo_id, cache_dir=str(hub_cache), local_files_only=False)
+    except Exception as exc:  # noqa: BLE001 — 收尾步骤可能在文件已落盘后失败
+        download_error = exc
+        append_task_log(task_id, f"下载收尾出现异常：{exc}")
+        append_task_log(task_id, traceback.format_exc())
+
+    # 不依赖 snapshot_download 的返回值：直接复查规范缓存位置是否已落盘。
+    # 这样即便收尾步骤（设置 mtime / 符号链接等）在 Windows 上抛错，
+    # 只要文件已就位也按成功处理。
+    cached_now, repo_dir = hf_repo_cached(cache_dir, repo_id)
+    if not cached_now:
+        if download_error is not None:
+            raise RuntimeError(f"模型下载失败：{download_error}") from download_error
+        raise RuntimeError(f"模型快照为空或未落盘：{repo_dir}")
+
+    if download_error is not None:
+        append_task_log(task_id, "文件已落盘，忽略收尾异常，按成功处理。")
     update_task_progress(task_id, 95, "模型安装完成，正在刷新检测。")
-    return {"model_key": normalized_key, "cache_path": str(repo_dir), "snapshot_path": str(snapshot_resolved), "after": env_check_payload()}
+    append_task_log(task_id, f"已安装到 {repo_dir}")
+    return {"model_key": normalized_key, "cache_path": str(repo_dir), "after": env_check_payload()}
 
 
 def install_pose_model_from_download(task_id: str = "") -> dict:
@@ -2969,8 +3178,7 @@ def model_status_payload() -> dict:
     loaded_repos = {repo_id for repo_id, _device in _BIREFNET_MODEL_CACHE.keys()}
     models = []
     for key, repo_id in AI_MATTE_MODEL_REPOS.items():
-        repo_cache_dir = cache_dir / "hub" / f"models--{repo_id.replace('/', '--')}"
-        cached = repo_cache_dir.exists() and any(repo_cache_dir.iterdir())
+        cached, repo_cache_dir = hf_repo_cached(cache_dir, repo_id)
         models.append(
             {
                 "key": key,

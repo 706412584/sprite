@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { resolveMediaUrl } from "@/api/spriteApi";
 import { SettingsPanel } from "@/features/settings/SettingsPanel";
 import { useAppActions, useAppState } from "@/state/AppContext";
+import { useStore } from "@/state/store";
 import {
   analyzeUiSmartSlices,
   cropUiSlice,
@@ -39,6 +40,7 @@ type SmartSliceStepKey = "source" | "matte" | "detect" | "export";
 export function UiSmartSlicePanel() {
   const { upload, sourcePreviewUrl, preview, busy } = useAppState();
   const { runPreview, importSourceFile } = useAppActions();
+  const setSharedSliceRects = useStore((s) => s.setSharedSliceRects);
   const [options, setOptions] = useState<UiSmartSliceOptions>(defaultUiSmartSliceOptions);
   const [sourceUrl, setSourceUrl] = useState("");
   const [sourceSize, setSourceSize] = useState({ width: 0, height: 0 });
@@ -143,6 +145,7 @@ export function UiSmartSlicePanel() {
       setCandidates(result.candidates);
       setSelectedId(result.candidates[0]?.id || "");
       setWarnings(result.warnings);
+      setSharedSliceRects(result.candidates.map(({ x, y, w, h }) => ({ x, y, w, h })));
     } catch (error) {
       setWarnings([error instanceof Error ? error.message : String(error)]);
     } finally {
