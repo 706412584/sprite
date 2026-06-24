@@ -16,6 +16,11 @@ Sprite Video Lab 是一个本地网页工具，用来把视频片段、单张图
 
 ## 功能
 
+### 最近更新 (v0.1.4)
+- 背景补全功能：复用智能切片结果，LaMa AI 填充被抠掉的背景
+- 修复批处理 60 秒停滞问题
+
+### 核心功能
 - 本地路径导入和拖拽上传。
 - 视频区间预览，支持按帧设置起止位置。
 - 批处理前先单帧预览参数效果。
@@ -197,6 +202,68 @@ start_sprite_video_lab_portable.bat 便携版启动器
 build_portable_bundle.ps1         便携版打包脚本
 work/                             运行时输出目录，已被 git 忽略
 ```
+
+## MCP 服务
+
+Sprite Video Lab 提供一个 MCP（Model Context Protocol）服务 `sprite_mcp_server.py`，把主要功能开放给 MCP 客户端（如 Claude、Kiro 等）。它是本地 HTTP 后端的薄包装：所有图像处理仍在 `server.py` 内运行，MCP 只通过 `127.0.0.1` 转发请求，不重复实现任何算法。
+
+### 开放的工具
+
+- `health_check`：后端在线状态 + 版本 + 环境概况
+- `list_models`：AI 抠图模型缓存/加载状态
+- `import_media`：从本地路径导入视频/图片
+- `split_psd`：PSD 分层拆部件
+- `preview_frame`：单帧去底调参
+- `process_video`：批量抽帧去底（可阻塞等待完成）
+- `get_task`：异步任务进度轮询
+- `smart_select_frames`：差异度智能选帧
+- `export_job`：导出 PNG 序列帧 / Sprite Sheet / zip / JSON manifest
+- `open_in_file_browser`：在文件管理器打开输出目录
+
+### 安装
+
+MCP 依赖独立于基础依赖，单独安装：
+
+```bash
+pip install -r requirements-mcp.txt
+```
+
+### 启动顺序
+
+MCP 服务依赖本地 HTTP 后端提供算力，必须**先启动后端**：
+
+```bash
+python server.py                 # 1) 后端，默认 http://127.0.0.1:8894
+python sprite_mcp_server.py      # 2) MCP（通常由 MCP 客户端按下方配置自动拉起）
+```
+
+MCP 服务启动后会向后端发送心跳，可在应用「运行时」面板看到 MCP 状态（运行中 / 就绪 / 不可用、工具数、最近心跳）。
+
+### 客户端配置
+
+在 MCP 客户端的 `mcp.json` 中登记（按需替换为你的实际绝对路径）：
+
+```json
+{
+  "mcpServers": {
+    "sprite-video-lab": {
+      "command": "python",
+      "args": ["<项目根>/sprite_mcp_server.py"],
+      "env": {
+        "SPRITE_VIDEO_LAB_API_BASE": "http://127.0.0.1:8894"
+      },
+      "disabled": false,
+      "autoApprove": ["health_check", "list_models", "get_task"]
+    }
+  }
+}
+```
+
+`SPRITE_VIDEO_LAB_API_BASE` 可省略，默认按 `SPRITE_VIDEO_LAB_PORT`（默认 `8894`）拼成 `http://127.0.0.1:8894`。
+
+### 安全提示
+
+后端目前监听 `127.0.0.1` 且无鉴权（CORS `*`）。MCP 经它可以读写 `work/` 下文件、并通过 `open_in_file_browser` 在本机打开路径。请仅在本地可信环境使用；若日后需要远程暴露，必须先在 `server.py` 增加访问控制。
 
 ## 注意事项
 
