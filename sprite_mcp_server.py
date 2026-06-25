@@ -363,6 +363,105 @@ def open_in_file_browser(path: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Tools — Animation presets
+# ---------------------------------------------------------------------------
+@mcp.tool()
+def list_animation_presets(category: str = "") -> dict:
+    """列出可用的动画动作预设。
+
+    category: 可选类别过滤 (locomotion, combat, emotion, status, interaction, special)
+    返回预设列表，包含ID、名称、类别、建议帧数等信息。
+    """
+    try:
+        from sprite_lab.animations import get_all_presets, get_presets_by_category, ActionCategory
+        if category:
+            try:
+                cat = ActionCategory(category)
+                presets = get_presets_by_category(cat)
+            except ValueError:
+                return {"error": f"Unknown category: {category}"}
+        else:
+            presets = get_all_presets()
+
+        return {
+            "count": len(presets),
+            "presets": [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "name_zh": p.name_zh,
+                    "category": p.category.value,
+                    "frame_count": p.frame_count,
+                    "fps": p.fps,
+                    "loop": p.loop,
+                    "tags": p.tags,
+                }
+                for p in presets
+            ],
+        }
+    except ImportError:
+        return {"error": "Animation presets not available"}
+
+
+@mcp.tool()
+def search_animation_presets(query: str) -> dict:
+    """搜索动画预设。
+
+    query: 搜索关键词（匹配名称、ID、标签）
+    """
+    try:
+        from sprite_lab.animations import search_presets
+        presets = search_presets(query)
+        return {
+            "count": len(presets),
+            "presets": [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "name_zh": p.name_zh,
+                    "category": p.category.value,
+                    "frame_count": p.frame_count,
+                    "tags": p.tags,
+                }
+                for p in presets
+            ],
+        }
+    except ImportError:
+        return {"error": "Animation presets not available"}
+
+
+@mcp.tool()
+def get_animation_directions() -> dict:
+    """获取动画方向系统信息。
+
+    返回8方向系统详情，包括主要方向（需AI生成）和镜像方向。
+    """
+    try:
+        from sprite_lab.animations import (
+            get_primary_directions,
+            get_mirrored_directions,
+            get_direction_angle,
+        )
+        primary = get_primary_directions()
+        mirrored = get_mirrored_directions()
+
+        return {
+            "total_directions": len(primary) + len(mirrored),
+            "primary_directions": [
+                {"direction": d.value, "angle": get_direction_angle(d)}
+                for d in primary
+            ],
+            "mirrored_directions": [
+                {"direction": d.value, "angle": get_direction_angle(d)}
+                for d in mirrored
+            ],
+            "cost_savings": "37.5% (5 directions generated, 3 mirrored)",
+        }
+    except ImportError:
+        return {"error": "Animation direction system not available"}
+
+
+# ---------------------------------------------------------------------------
 # Tools — Aseprite integration (optional)
 # ---------------------------------------------------------------------------
 @mcp.tool()
