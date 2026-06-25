@@ -2,6 +2,12 @@
 
 本项目的所有重要更改都会记录在此文件。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.1.6] - 2026-06-25
+
+### 新增
+- **背面动画模板**：idleBack, walkBack, runBack 背面动画
+- 完善骨骼 PSD 流水线多方向支持（正面、侧面、背面）
+
 ## [0.1.5] - 2026-06-25
 
 ### 新增
