@@ -604,6 +604,130 @@ const runFrontTemplate: ActionTemplate = {
   },
 };
 
+// ---------- back 背面动作 ----------
+const idleBackTemplate: ActionTemplate = {
+  id: "idleBack",
+  label: "Idle 背面呼吸",
+  description: "背面观待机：上下浮动 + 头发摆动。",
+  defaultDuration: 1.6,
+  defaultLoop: true,
+  params: [
+    { key: "amplitudeY", label: "上下幅度", min: 0, max: 12, step: 0.5, default: 3 },
+    { key: "headRot", label: "头部摆动 (度)", min: 0, max: 6, step: 0.1, default: 1.2 },
+  ],
+  generate: (skeleton, params) => {
+    const duration = 1.6;
+    const anim = emptyAnimation("idleBack", duration, true);
+    const sampleCount = 12;
+
+    const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
+    if (torso) {
+      const tl = ensureTimeline(anim, torso.id);
+      const trans = sampleSinKeyframes(sampleCount, duration, (t) => Math.sin((t / duration) * Math.PI * 2) * -params.amplitudeY);
+      for (let i = 0; i < trans.length; i += 1) {
+        pushKey(tl, { time: trans[i].time, channel: "translate", values: [0, trans[i].value], easing: "linear" });
+      }
+    }
+    pushRotateSamples(anim, skeleton, "head", sampleCount, duration, params.headRot, Math.PI / 4);
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.headRot * 1.4, Math.PI * 0.7);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.amplitudeY * 0.5, Math.PI * 1.1);
+    return anim;
+  },
+};
+
+const walkBackTemplate: ActionTemplate = {
+  id: "walkBack",
+  label: "Walk 背面行走",
+  description: "背面观行走：抬腿 + 躯干上下 + 手臂摆动。",
+  defaultDuration: 0.8,
+  defaultLoop: true,
+  params: [
+    { key: "legLift", label: "抬腿幅度 (px)", min: 4, max: 30, step: 0.5, default: 10 },
+    { key: "torsoBob", label: "躯干上下 (px)", min: 1, max: 10, step: 0.5, default: 3 },
+    { key: "armSway", label: "手臂摆动 (度)", min: 4, max: 30, step: 0.5, default: 12 },
+  ],
+  generate: (skeleton, params) => {
+    const duration = 0.8;
+    const anim = emptyAnimation("walkBack", duration, true);
+    const sampleCount = 14;
+
+    const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
+    if (torso) {
+      const tl = ensureTimeline(anim, torso.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => -Math.abs(Math.sin((t / duration) * Math.PI * 2)) * params.torsoBob);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "translate", values: [0, s.value], easing: "linear" });
+    }
+
+    const liftLeg = (boneName: string, phase: number) => {
+      const bone = findBoneByName(skeleton, boneName);
+      if (!bone) return;
+      const tl = ensureTimeline(anim, bone.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => Math.max(0, Math.sin((t / duration) * Math.PI * 2 + phase)) * -params.legLift);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "translate", values: [0, s.value], easing: "linear" });
+    };
+    liftLeg("thighL", 0);
+    liftLeg("thighR", Math.PI);
+
+    pushRotateSamples(anim, skeleton, "upperArmL", sampleCount, duration, params.armSway, Math.PI);
+    pushRotateSamples(anim, skeleton, "upperArmR", sampleCount, duration, params.armSway, 0);
+    pushRotateSamples(anim, skeleton, "forearmL", sampleCount, duration, params.armSway * 0.7, Math.PI * 1.05);
+    pushRotateSamples(anim, skeleton, "forearmR", sampleCount, duration, params.armSway * 0.7, 0.05);
+
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.torsoBob * 1.2, Math.PI * 0.45);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.torsoBob * 1.5, Math.PI * 0.6);
+
+    return anim;
+  },
+};
+
+const runBackTemplate: ActionTemplate = {
+  id: "runBack",
+  label: "Run 背面奔跑",
+  description: "背面观奔跑：抬腿幅度更大、躯干轻微前倾。",
+  defaultDuration: 0.6,
+  defaultLoop: true,
+  params: [
+    { key: "legLift", label: "抬腿幅度 (px)", min: 4, max: 40, step: 0.5, default: 14 },
+    { key: "torsoBob", label: "躯干上下 (px)", min: 1, max: 14, step: 0.5, default: 5 },
+    { key: "torsoLean", label: "躯干前倾 (度)", min: 0, max: 12, step: 0.5, default: 4 },
+    { key: "armSway", label: "手臂摆动 (度)", min: 4, max: 30, step: 0.5, default: 10 },
+  ],
+  generate: (skeleton, params) => {
+    const duration = 0.6;
+    const anim = emptyAnimation("runBack", duration, true);
+    const sampleCount = 14;
+
+    const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
+    if (torso) {
+      const tl = ensureTimeline(anim, torso.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => -Math.abs(Math.sin((t / duration) * Math.PI * 2)) * params.torsoBob);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "translate", values: [0, s.value], easing: "linear" });
+      pushKey(tl, { time: 0, channel: "rotate", values: [params.torsoLean], easing: "linear" });
+      pushKey(tl, { time: duration, channel: "rotate", values: [params.torsoLean], easing: "linear" });
+    }
+
+    const liftLeg = (boneName: string, phase: number) => {
+      const bone = findBoneByName(skeleton, boneName);
+      if (!bone) return;
+      const tl = ensureTimeline(anim, bone.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => Math.max(0, Math.sin((t / duration) * Math.PI * 2 + phase)) * -params.legLift);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "translate", values: [0, s.value], easing: "linear" });
+    };
+    liftLeg("thighL", 0);
+    liftLeg("thighR", Math.PI);
+
+    pushRotateSamples(anim, skeleton, "upperArmL", sampleCount, duration, params.armSway, Math.PI);
+    pushRotateSamples(anim, skeleton, "upperArmR", sampleCount, duration, params.armSway, 0);
+    pushRotateSamples(anim, skeleton, "forearmL", sampleCount, duration, params.armSway * 0.7, Math.PI * 1.05);
+    pushRotateSamples(anim, skeleton, "forearmR", sampleCount, duration, params.armSway * 0.7, 0.05);
+
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.torsoBob * 1.5, Math.PI * 0.45);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.torsoBob * 2.0, Math.PI * 0.8);
+
+    return anim;
+  },
+};
+
 // ---------- side 侧面动作 ----------
 const idleSideTemplate: ActionTemplate = {
   ...idleTemplate,
@@ -707,6 +831,9 @@ export const actionTemplates: ActionTemplate[] = [
   walkFrontTemplate,
   idleFrontTemplate,
   runFrontTemplate,
+  idleBackTemplate,
+  walkBackTemplate,
+  runBackTemplate,
   idleSideTemplate,
   walkSideTemplate,
   runSideTemplate,
