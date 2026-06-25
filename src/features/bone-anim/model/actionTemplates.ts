@@ -728,6 +728,128 @@ const runBackTemplate: ActionTemplate = {
   },
 };
 
+// ---------- threeQuarter 伪侧面动作 ----------
+// 伪侧面（3/4 视角）：介于正面和侧面之间，身体略微侧转
+const idleThreeQuarterTemplate: ActionTemplate = {
+  id: "idleThreeQuarter",
+  label: "Idle 伪侧面呼吸",
+  description: "3/4 视角待机：轻微侧转 + 前后重心摆动。",
+  defaultDuration: 1.6,
+  defaultLoop: true,
+  params: [
+    { key: "amplitudeY", label: "上下幅度", min: 0, max: 12, step: 0.5, default: 3 },
+    { key: "swayX", label: "前后重心 (px)", min: 0, max: 6, step: 0.1, default: 1.5 },
+    { key: "headRot", label: "头部摆动 (度)", min: 0, max: 6, step: 0.1, default: 1.2 },
+  ],
+  generate: (skeleton, params) => {
+    const duration = 1.6;
+    const anim = emptyAnimation("idleThreeQuarter", duration, true);
+    const sampleCount = 12;
+
+    const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
+    if (torso) {
+      const tl = ensureTimeline(anim, torso.id);
+      const transY = sampleSinKeyframes(sampleCount, duration, (t) => Math.sin((t / duration) * Math.PI * 2) * -params.amplitudeY);
+      const transX = sampleSinKeyframes(sampleCount, duration, (t) => Math.sin((t / duration) * Math.PI * 2 + Math.PI / 2) * params.swayX);
+      for (let i = 0; i < transY.length; i += 1) {
+        pushKey(tl, { time: transY[i].time, channel: "translate", values: [transX[i].value, transY[i].value], easing: "linear" });
+      }
+    }
+    pushRotateSamples(anim, skeleton, "head", sampleCount, duration, params.headRot, Math.PI / 4);
+    pushRotateSamples(anim, skeleton, "hairFront", sampleCount, duration, params.headRot * 1.3, Math.PI * 0.6);
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.headRot * 1.1, Math.PI * 0.9);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.amplitudeY * 0.4, Math.PI * 1.0);
+    pushRotateSamples(anim, skeleton, "skirt", sampleCount, duration, params.amplitudeY * 0.3, Math.PI * 0.85);
+    return anim;
+  },
+};
+
+const walkThreeQuarterTemplate: ActionTemplate = {
+  id: "walkThreeQuarter",
+  label: "Walk 伪侧面行走",
+  description: "3/4 视角行走：侧面摆腿 + 正面轻微抬腿。",
+  defaultDuration: 0.8,
+  defaultLoop: true,
+  params: [
+    { key: "legSwing", label: "摆腿幅度 (度)", min: 0, max: 50, step: 1, default: 20 },
+    { key: "armSwing", label: "摆臂幅度 (度)", min: 0, max: 40, step: 1, default: 12 },
+    { key: "bodyBob", label: "身体上下", min: 0, max: 10, step: 0.5, default: 3 },
+  ],
+  generate: (skeleton, params) => {
+    const duration = 0.8;
+    const anim = emptyAnimation("walkThreeQuarter", duration, true);
+    const sampleCount = 14;
+
+    // 伪侧面：近侧腿摆动幅度大，远侧小
+    pushRotateSamples(anim, skeleton, "thighL", sampleCount, duration, params.legSwing, 0);
+    pushRotateSamples(anim, skeleton, "thighR", sampleCount, duration, params.legSwing * 0.6, Math.PI);
+    pushRotateSamples(anim, skeleton, "shinL", sampleCount, duration, params.legSwing * 0.8, 0);
+    pushRotateSamples(anim, skeleton, "shinR", sampleCount, duration, params.legSwing * 0.5, Math.PI);
+    pushRotateSamples(anim, skeleton, "upperArmL", sampleCount, duration, params.armSwing, Math.PI);
+    pushRotateSamples(anim, skeleton, "upperArmR", sampleCount, duration, params.armSwing * 0.6, 0);
+    pushRotateSamples(anim, skeleton, "forearmL", sampleCount, duration, params.armSwing * 0.7, Math.PI * 1.05);
+    pushRotateSamples(anim, skeleton, "forearmR", sampleCount, duration, params.armSwing * 0.4, 0.05);
+
+    const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
+    if (torso) {
+      const tl = ensureTimeline(anim, torso.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => -Math.abs(Math.sin((t / duration) * Math.PI * 2)) * params.bodyBob);
+      for (const s of samples) pushKey(tl, { time: s.time, channel: "translate", values: [0, s.value], easing: "linear" });
+    }
+
+    pushRotateSamples(anim, skeleton, "hairFront", sampleCount, duration, params.bodyBob * 1.0, Math.PI * 0.3);
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.bodyBob * 1.2, Math.PI * 0.5);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.bodyBob * 1.8, Math.PI * 0.7);
+    pushRotateSamples(anim, skeleton, "skirt", sampleCount, duration, params.bodyBob * 1.4, Math.PI * 0.55);
+    return anim;
+  },
+};
+
+const runThreeQuarterTemplate: ActionTemplate = {
+  id: "runThreeQuarter",
+  label: "Run 伪侧面奔跑",
+  description: "3/4 视角奔跑：更快步频、更大摆腿。",
+  defaultDuration: 0.55,
+  defaultLoop: true,
+  params: [
+    { key: "legSwing", label: "摆腿幅度 (度)", min: 0, max: 70, step: 1, default: 28 },
+    { key: "armSwing", label: "摆臂幅度 (度)", min: 0, max: 50, step: 1, default: 20 },
+    { key: "bodyBob", label: "身体上下", min: 0, max: 14, step: 0.5, default: 5 },
+    { key: "lean", label: "前倾 (度)", min: 0, max: 14, step: 0.5, default: 4, group: "advanced" },
+  ],
+  generate: (skeleton, params) => {
+    const duration = 0.55;
+    const anim = emptyAnimation("runThreeQuarter", duration, true);
+    const sampleCount = 14;
+
+    pushRotateSamples(anim, skeleton, "thighL", sampleCount, duration, params.legSwing, 0);
+    pushRotateSamples(anim, skeleton, "thighR", sampleCount, duration, params.legSwing * 0.6, Math.PI);
+    pushRotateSamples(anim, skeleton, "shinL", sampleCount, duration, params.legSwing * 0.9, 0);
+    pushRotateSamples(anim, skeleton, "shinR", sampleCount, duration, params.legSwing * 0.55, Math.PI);
+    pushRotateSamples(anim, skeleton, "footL", sampleCount, duration, params.legSwing * 0.75, 0);
+    pushRotateSamples(anim, skeleton, "footR", sampleCount, duration, params.legSwing * 0.45, Math.PI);
+    pushRotateSamples(anim, skeleton, "upperArmL", sampleCount, duration, params.armSwing * 0.55, Math.PI);
+    pushRotateSamples(anim, skeleton, "upperArmR", sampleCount, duration, params.armSwing * 0.35, 0);
+    pushRotateSamples(anim, skeleton, "forearmL", sampleCount, duration, params.armSwing, Math.PI);
+    pushRotateSamples(anim, skeleton, "forearmR", sampleCount, duration, params.armSwing * 0.6, 0);
+
+    const torso = findBoneByName(skeleton, "torso") || findBoneByName(skeleton, "body");
+    if (torso) {
+      const tl = ensureTimeline(anim, torso.id);
+      const samples = sampleSinKeyframes(sampleCount, duration, (t) => -Math.abs(Math.sin((t / duration) * Math.PI * 2)) * params.bodyBob);
+      for (const sample of samples) pushKey(tl, { time: sample.time, channel: "translate", values: [0, sample.value], easing: "linear" });
+      pushKey(tl, { time: 0, channel: "rotate", values: [params.lean], easing: "linear" });
+      pushKey(tl, { time: duration, channel: "rotate", values: [params.lean], easing: "linear" });
+    }
+
+    pushRotateSamples(anim, skeleton, "hairFront", sampleCount, duration, params.bodyBob * 1.2, Math.PI * 0.25);
+    pushRotateSamples(anim, skeleton, "hairBack", sampleCount, duration, params.bodyBob * 1.5, Math.PI * 0.45);
+    pushRotateSamples(anim, skeleton, "cape", sampleCount, duration, params.bodyBob * 2.0, Math.PI * 0.75);
+    pushRotateSamples(anim, skeleton, "skirt", sampleCount, duration, params.bodyBob * 1.6, Math.PI * 0.55);
+    return anim;
+  },
+};
+
 // ---------- side 侧面动作 ----------
 const idleSideTemplate: ActionTemplate = {
   ...idleTemplate,
@@ -834,6 +956,9 @@ export const actionTemplates: ActionTemplate[] = [
   idleBackTemplate,
   walkBackTemplate,
   runBackTemplate,
+  idleThreeQuarterTemplate,
+  walkThreeQuarterTemplate,
+  runThreeQuarterTemplate,
   idleSideTemplate,
   walkSideTemplate,
   runSideTemplate,
