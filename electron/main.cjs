@@ -1,5 +1,5 @@
 const { app, BrowserWindow, dialog, ipcMain, protocol, shell } = require("electron");
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync, execSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const http = require("node:http");
@@ -35,6 +35,19 @@ let mainWindow = null;
 let serverProcess = null;
 let mcpProcess = null;
 let lastServerError = null;
+
+function installGlobalErrorHandlers() {
+  process.on("uncaughtException", (error) => {
+    lastServerError = error?.message || String(error);
+    logLine("main.log", `uncaughtException: ${error?.stack || error}`);
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    const message = reason instanceof Error ? reason.stack || reason.message : String(reason);
+    lastServerError = message;
+    logLine("main.log", `unhandledRejection: ${message}`);
+  });
+}
 
 function timestampPrefix() {
   return `[${new Date().toISOString()}]`;
@@ -110,10 +123,60 @@ function waitForServer(timeoutMs = 15000) {
   });
 }
 
+// 强制结束指定进程及其整棵子进程树。打包环境里 Python 可能再 fork 子进程，
+// 只 kill 顶层进程会留下孤儿进程继续占用端口、提供旧代码。
+function killProcessTree(pid) {
+  if (!pid) return;
+  try {
+    if (process.platform === "win32") {
+      execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    } else {
+      process.kill(pid, "SIGKILL");
+    }
+  } catch {}
+}
+
+function waitForProcessExit(proc, timeoutMs = 5000) {
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    proc.once("exit", finish);
+    setTimeout(finish, timeoutMs);
+  });
+}
+
+// 清理任何仍在监听后端端口的残留进程（上次未正常退出的孤儿）。
+function freeServerPort(port) {
+  if (process.platform !== "win32") return;
+  try {
+    const out = execSync("netstat -ano -p tcp", { encoding: "utf8", windowsHide: true });
+    const pids = new Set();
+    for (const line of out.split(/\r?\n/)) {
+      const match = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)/i);
+      if (match && Number(match[1]) === Number(port)) {
+        const pid = match[2];
+        if (pid && pid !== String(process.pid)) pids.add(pid);
+      }
+    }
+    for (const pid of pids) {
+      logLine("main.log", `reaping stale process on port ${port}: pid=${pid}`);
+      killProcessTree(pid);
+    }
+  } catch (error) {
+    logLine("main.log", `freeServerPort error: ${error?.message || error}`);
+  }
+}
+
 function startPythonServer() {
   if (serverProcess && !serverProcess.killed) {
     return serverProcess;
   }
+  freeServerPort(defaultServerPort);
 
   const pythonCommand = getPythonCommand();
   const serverScriptPath = getServerScriptPath();
@@ -137,7 +200,8 @@ function startPythonServer() {
   }
 
   logLine("main.log", `starting python server: ${pythonCommand} ${serverScriptPath}`);
-  serverProcess = spawn(pythonCommand, [serverScriptPath, "--host", "127.0.0.1", "--port", String(defaultServerPort)], {
+  logLine("main.log", `python server env: ffmpegDir=${ffmpegDir || "(empty)"} modelCacheDir=${modelCacheDir} runtimeDir=${runtimeDir}`);
+  serverProcess = spawn(pythonCommand, [serverScriptPath, "--serve", "--host", "127.0.0.1", "--port", String(defaultServerPort)], {
     cwd: path.dirname(serverScriptPath),
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -160,11 +224,24 @@ function startPythonServer() {
   return serverProcess;
 }
 
-function stopPythonServer() {
-  if (serverProcess && !serverProcess.killed) {
-    serverProcess.kill();
-  }
+async function stopPythonServer() {
+  const proc = serverProcess;
   serverProcess = null;
+  if (proc && !proc.killed) {
+    killProcessTree(proc.pid);
+    await waitForProcessExit(proc);
+  }
+  freeServerPort(defaultServerPort);
+}
+
+// 退出场景下的同步收尾：来不及 await，直接对整棵树发 taskkill。
+function stopPythonServerSync() {
+  const proc = serverProcess;
+  serverProcess = null;
+  if (proc && !proc.killed) {
+    killProcessTree(proc.pid);
+  }
+  freeServerPort(defaultServerPort);
 }
 
 // 顺带启动 MCP 服务（stdio）。装机版里没有外部 MCP 客户端来拉起它，
@@ -190,6 +267,7 @@ function startMcpServer() {
   };
 
   logLine("main.log", `starting mcp server: ${pythonCommand} ${mcpScriptPath}`);
+  logLine("main.log", `mcp env: apiBase=${getServerUrl()} port=${defaultServerPort}`);
   mcpProcess = spawn(pythonCommand, [mcpScriptPath], {
     cwd: path.dirname(mcpScriptPath),
     env,
@@ -279,7 +357,7 @@ function wireIpc() {
 
   ipcMain.handle("sprite:runtime:restart-server", async () => {
     stopMcpServer();
-    stopPythonServer();
+    await stopPythonServer();
     startPythonServer();
     await waitForServer();
     startMcpServer();
@@ -323,6 +401,8 @@ function wireIpc() {
   });
 }
 
+installGlobalErrorHandlers();
+
 app.whenReady().then(() => {
   registerAppProtocol();
   wireIpc();
@@ -334,7 +414,7 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   stopMcpServer();
-  stopPythonServer();
+  stopPythonServerSync();
   if (process.platform !== "darwin") {
     app.quit();
   }
@@ -342,5 +422,5 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   stopMcpServer();
-  stopPythonServer();
+  stopPythonServerSync();
 });

@@ -1,0 +1,24 @@
+
+> sprite-video-lab-desktop@0.1.7 build
+> tsc -b && vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 106 modules transformed.
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) D:/User/70641/Documents/SCE Projects/game_entry_0/tools/sprite/src/features/bone-anim/model/actionTemplates.ts is dynamically imported by D:/User/70641/Documents/SCE Projects/game_entry_0/tools/sprite/src/features/bone-anim/BoneAnimPanel.tsx but also statically imported by D:/User/70641/Documents/SCE Projects/game_entry_0/tools/sprite/src/features/bone-anim/BoneAnimPanel.tsx, D:/User/70641/Documents/SCE Projects/game_entry_0/tools/sprite/src/features/bone-anim/stages/StageAction.tsx, D:/User/70641/Documents/SCE Projects/game_entry_0/tools/sprite/src/features/bone-anim/stages/StagePreview.tsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) D:/User/70641/Documents/SCE Projects/game_entry_0/tools/sprite/node_modules/jszip/dist/jszip.min.js is dynamically imported by D:/User/70641/Documents/SCE Projects/game_entry_0/tools/sprite/src/features/smart-slice/uiSmartSlice.ts but also statically imported by D:/User/70641/Documents/SCE Projects/game_entry_0/tools/sprite/src/features/quantize/QuantizePanel.tsx, dynamic import will not move module into another chunk.
+[39m
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                 [39m[1m[2m  0.41 kB[22m[1m[22m[2m │ gzip:   0.28 kB[22m
+[2mdist/[22m[35massets/index-C44ftFJb.css  [39m[1m[2m 40.72 kB[22m[1m[22m[2m │ gzip:   8.09 kB[22m
+[2mdist/[22m[36massets/index-BJi7_UHh.js   [39m[1m[33m627.64 kB[39m[22m[2m │ gzip: 199.83 kB[22m
+[33m
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[32m✓ built in 1.11s[39m

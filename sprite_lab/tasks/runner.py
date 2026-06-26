@@ -74,32 +74,53 @@ def run_background_task(label: str, target, *args, **kwargs) -> dict:
         }
 
     def worker() -> None:
-        update_task_progress(task_id, 10, f"{label}处理中。")
+        # 兜底：worker 线程绝不把异常抛回解释器，避免拖垮其它线程/主进程。
         try:
-            if "task_id" not in kwargs:
-                kwargs["task_id"] = task_id
-            result = target(*args, **kwargs)
-            append_task_log(task_id, f"{label}已完成。")
-            with TASKS_LOCK:
-                task = TASKS[task_id]
-                task.update({
-                    "status": "completed",
-                    "progress": 100,
-                    "message": f"{label}已完成。",
-                    "result": result,
-                    "updated_at": iso_now(),
-                })
-        except Exception as exc:
-            append_task_log(task_id, f"{label}失败：{exc}")
-            with TASKS_LOCK:
-                task = TASKS[task_id]
-                task.update({
-                    "status": "failed",
-                    "progress": 100,
-                    "message": f"{label}失败。",
-                    "error": str(exc),
-                    "updated_at": iso_now(),
-                })
+            update_task_progress(task_id, 10, f"{label}处理中。")
+            try:
+                if "task_id" not in kwargs:
+                    kwargs["task_id"] = task_id
+                result = target(*args, **kwargs)
+                append_task_log(task_id, f"{label}已完成。")
+                with TASKS_LOCK:
+                    task = TASKS[task_id]
+                    task.update({
+                        "status": "completed",
+                        "progress": 100,
+                        "message": f"{label}已完成。",
+                        "result": result,
+                        "updated_at": iso_now(),
+                    })
+            except Exception as exc:
+                try:
+                    append_task_log(task_id, f"{label}失败：{exc}")
+                except Exception:
+                    pass
+                with TASKS_LOCK:
+                    task = TASKS.get(task_id)
+                    if task is not None:
+                        task.update({
+                            "status": "failed",
+                            "progress": 100,
+                            "message": f"{label}失败。",
+                            "error": str(exc),
+                            "updated_at": iso_now(),
+                        })
+        except BaseException:
+            # 连失败处理本身都出错时的最后一道防线：尽量把任务标记为失败，绝不向外抛。
+            try:
+                with TASKS_LOCK:
+                    task = TASKS.get(task_id)
+                    if task is not None and task.get("status") == "running":
+                        task.update({
+                            "status": "failed",
+                            "progress": 100,
+                            "message": f"{label}异常终止。",
+                            "error": "internal error",
+                            "updated_at": iso_now(),
+                        })
+            except Exception:
+                pass
 
     threading.Thread(target=worker, daemon=True).start()
     return task_progress_payload(task_id)

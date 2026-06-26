@@ -37,6 +37,75 @@ def _dbg(msg: str) -> None:
     import sys
     print(f"[DBG] {msg}", file=sys.stderr, flush=True)
 
+
+class _ResilientTextStream:
+    """包裹 stdout/stderr，吞掉写入/刷新异常。
+
+    打包后的桌面版里 stdout/stderr 被 Electron 重定向到管道，Windows 下偶发
+    [Errno 22] EINVAL；若让该异常从 print / traceback / 第三方库日志里抛出，
+    会拖垮当前线程乃至看起来"卡死主进程"。这里统一兜底。
+    """
+
+    def __init__(self, stream) -> None:
+        self._stream = stream
+
+    def write(self, data):
+        try:
+            return self._stream.write(data)
+        except Exception:
+            return 0
+
+    def flush(self) -> None:
+        try:
+            self._stream.flush()
+        except Exception:
+            pass
+
+    def isatty(self) -> bool:
+        try:
+            return bool(self._stream.isatty())
+        except Exception:
+            return False
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def install_resilient_std_streams() -> None:
+    """把 sys.stdout / sys.stderr 换成不会因写入失败而抛异常的版本。"""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None or isinstance(stream, _ResilientTextStream):
+            continue
+        try:
+            stream.reconfigure(line_buffering=True)
+        except Exception:
+            pass
+        setattr(sys, name, _ResilientTextStream(stream))
+
+
+def _install_thread_excepthook() -> None:
+    """后台线程里的未捕获异常只记录、不让其影响其它线程或主进程。"""
+
+    def _hook(args) -> None:
+        try:
+            print(
+                f"[thread:{getattr(args.thread, 'name', '?')}] 未捕获异常：{args.exc_value}",
+                file=sys.stderr,
+                flush=True,
+            )
+        except Exception:
+            pass
+
+    try:
+        threading.excepthook = _hook
+    except Exception:
+        pass
+
+
+install_resilient_std_streams()
+_install_thread_excepthook()
+
 from PIL import Image, ImageChops, ImageFilter
 try:
     from rectpack import newPacker
@@ -1947,6 +2016,7 @@ def process_video_to_job(
     task_id: str = "",
 ) -> dict:
     update_task_progress(task_id, 8, "读取素材信息。")
+    _dbg(f"process_video_to_job: upload_id={upload_id}, start_time={start_time}, end_time={end_time}, keep_every={keep_every}, target_size={target_size}, reduce_px={reduce_px}, canvas_mode={canvas_mode}, matte_mode={matte_mode}")
     source_path, media_type = source_media_entry(upload_id)
     info = media_info(source_path, media_type)
     start_time = max(0.0, start_time)
@@ -2301,9 +2371,11 @@ def preview_frame(
     decontaminate_strength: float = 1.0,
     pipeline: list[str] | None = None,
 ) -> dict:
+    _dbg(f"preview_frame: upload_id={upload_id}, sample_time={sample_time}")
     source_path, media_type = source_media_entry(upload_id)
     info = media_info(source_path, media_type)
     duration = safe_float(info.get("duration"), 0.0)
+    _dbg(f"preview_frame: source_path={source_path}, media_type={media_type}, duration={duration}")
     if media_type == "video" and duration > 0:
         sample_time = clamp_float(sample_time, 0.0, duration)
     else:
@@ -2378,6 +2450,7 @@ def preview_frame(
         rendered_frame, changed = semitransparent_to_opaque_image(rendered_frame)
         postprocess_changed["semitransparent_to_opaque"] += changed
     rendered_frame.save(processed_path)
+    _dbg(f"preview_frame: saved preview_id={preview_id}, raw={raw_path}, source={source_preview_path}, processed={processed_path}")
 
     manifest = {
         "preview_id": preview_id,
@@ -2794,60 +2867,57 @@ def export_job(job_id: str, selected_indices: list[int], sheet_columns: int, vid
         cell_width = max(cell_width, frame.size[0])
         cell_height = max(cell_height, frame.size[1])
         frame.close()
+    columns = max(1, sheet_columns or round(math.sqrt(len(copied_paths))))
+    rows = math.ceil(len(copied_paths) / columns)
+    padding = 2
+    sheet = None
+    sheet_layout = "grid"
+    frame_positions: list[dict] = []
 
-    # 使用 rectpack 进行更紧凑的 bin packing
+    # 优先用 rectpack 做紧凑装箱；任何环节异常都回退到规则网格，保证一定能出图，
+    # 且 columns / sheet / frame_positions 等变量在所有分支下都必然已绑定。
     if HAS_RECTPACK and len(copied_paths) > 1:
-        packer = newPacker(mode=1, bin_algo=2, pack_algo=MaxRectsBssf, rotation=False)
-        padding = 2
-        for idx, (w, h) in enumerate(frame_sizes):
-            packer.add_rect(w + padding, h + padding, idx)
-        # 计算最优 bin 尺寸
-        total_area = sum((w + padding) * (h + padding) for w, h in frame_sizes)
-        max_w = max(w for w, h in frame_sizes) + padding
-        max_h = max(h for w, h in frame_sizes) + padding
-        # 尝试不同的 bin 尺寸
-        best_sheet = None
-        best_rects = None
-        for cols in range(1, len(copied_paths) + 1):
-            rows = math.ceil(len(copied_paths) / cols)
-            bin_w = cols * cell_width + padding * cols
-            bin_h = rows * cell_height + padding * rows
-            bin_w = max(bin_w, max_w)
-            bin_h = max(bin_h, max_h)
-            test_packer = newPacker(mode=1, bin_algo=2, pack_algo=MaxRectsBssf, rotation=False)
-            for idx, (w, h) in enumerate(frame_sizes):
-                test_packer.add_rect(w + padding, h + padding, idx)
-            test_packer.add_bin(bin_w, bin_h)
-            test_packer.pack()
-            if len(test_packer[0]) == len(copied_paths):
-                if best_sheet is None or (bin_w * bin_h < best_sheet[0] * best_sheet[1]):
-                    best_sheet = (bin_w, bin_h)
-                    best_rects = list(test_packer[0])
-        if best_sheet and best_rects:
-            sheet = Image.new("RGBA", best_sheet, (0, 0, 0, 0))
-            for rect in best_rects:
-                idx = rect.rid
-                frame = open_rgba_image(copied_paths[idx])
-                sheet.paste(frame, (rect.x, rect.y), frame)
-                frame.close()
-        else:
-            # fallback to simple grid
-            columns = max(1, sheet_columns or round(math.sqrt(len(copied_paths))))
-            rows = math.ceil(len(copied_paths) / columns)
-            sheet = Image.new("RGBA", (columns * cell_width, rows * cell_height), (0, 0, 0, 0))
-            for index, frame_path in enumerate(copied_paths):
-                row = index // columns
-                column = index % columns
-                frame = open_rgba_image(frame_path)
-                offset_x = column * cell_width
-                offset_y = row * cell_height
-                sheet.paste(frame, (offset_x, offset_y), frame)
-                frame.close()
-    else:
-        # 简单网格布局
-        columns = max(1, sheet_columns or round(math.sqrt(len(copied_paths))))
-        rows = math.ceil(len(copied_paths) / columns)
+        try:
+            max_w = max(w for w, _ in frame_sizes) + padding
+            max_h = max(h for _, h in frame_sizes) + padding
+            best_sheet = None
+            best_rects = None
+            for cols in range(1, len(copied_paths) + 1):
+                grid_rows = math.ceil(len(copied_paths) / cols)
+                bin_w = max(cols * cell_width + padding * cols, max_w)
+                bin_h = max(grid_rows * cell_height + padding * grid_rows, max_h)
+                test_packer = newPacker(mode=1, bin_algo=2, pack_algo=MaxRectsBssf, rotation=False)
+                for idx, (w, h) in enumerate(frame_sizes):
+                    test_packer.add_rect(w + padding, h + padding, idx)
+                test_packer.add_bin(bin_w, bin_h)
+                test_packer.pack()
+                if len(test_packer[0]) == len(copied_paths):
+                    if best_sheet is None or (bin_w * bin_h < best_sheet[0] * best_sheet[1]):
+                        best_sheet = (bin_w, bin_h)
+                        best_rects = list(test_packer[0])
+            if best_sheet and best_rects:
+                packed_sheet = Image.new("RGBA", best_sheet, (0, 0, 0, 0))
+                ordered: list[dict | None] = [None] * len(copied_paths)
+                for rect in best_rects:
+                    idx = rect.rid
+                    frame = open_rgba_image(copied_paths[idx])
+                    packed_sheet.paste(frame, (rect.x, rect.y), frame)
+                    frame.close()
+                    fw, fh = frame_sizes[idx]
+                    ordered[idx] = {"index": idx, "x": rect.x, "y": rect.y, "width": fw, "height": fh}
+                sheet = packed_sheet
+                sheet_layout = "packed"
+                frame_positions = [pos for pos in ordered if pos is not None]
+        except Exception as exc:
+            print(f"[export] rectpack packing failed, fallback to grid: {exc}")
+            sheet = None
+            sheet_layout = "grid"
+            frame_positions = []
+
+    if sheet is None:
         sheet = Image.new("RGBA", (columns * cell_width, rows * cell_height), (0, 0, 0, 0))
+        sheet_layout = "grid"
+        frame_positions = []
         for index, frame_path in enumerate(copied_paths):
             row = index // columns
             column = index % columns
@@ -2857,6 +2927,8 @@ def export_job(job_id: str, selected_indices: list[int], sheet_columns: int, vid
             offset_y = row * cell_height + (cell_height - frame_height) // 2
             sheet.paste(frame, (offset_x, offset_y), frame)
             frame.close()
+            frame_positions.append({"index": index, "x": offset_x, "y": offset_y, "width": frame_width, "height": frame_height})
+    unscaled_sheet_size = sheet.size
     sheet_path = None
     webp_sheet_path = None
     sheet_pixel_size: tuple[int, int] | None = None
@@ -2901,6 +2973,10 @@ def export_job(job_id: str, selected_indices: list[int], sheet_columns: int, vid
         "sheet_columns": columns,
         "cell_width": cell_width,
         "cell_height": cell_height,
+        "sheet_layout": sheet_layout,
+        "unscaled_sheet_width": unscaled_sheet_size[0],
+        "unscaled_sheet_height": unscaled_sheet_size[1],
+        "frames": frame_positions,
         "sheet_width": sheet_pixel_size[0] if sheet_pixel_size else None,
         "sheet_height": sheet_pixel_size[1] if sheet_pixel_size else None,
         "frame_count": len(copied_paths),
@@ -3147,25 +3223,46 @@ def install_pose_model_from_download(task_id: str = "") -> dict:
     part_path = target_path.with_suffix(target_path.suffix + ".part")
     request = Request(POSE_MODEL_URL, headers={"User-Agent": "SpriteVideoLab/0.1"})
     update_task_progress(task_id, 10, "开始下载姿态模型权重。")
-    with urlopen(request, timeout=60) as response:
-        total = safe_int(response.headers.get("Content-Length"), 0)
-        downloaded = 0
-        last_progress = 10
-        with part_path.open("wb") as output:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                output.write(chunk)
-                downloaded += len(chunk)
-                if total > 0:
-                    next_progress = 10 + int((downloaded / total) * 85)
-                    if next_progress >= last_progress + 2:
-                        last_progress = min(95, next_progress)
-                        update_task_progress(task_id, last_progress, f"正在下载：{downloaded / 1024 / 1024:.1f} / {total / 1024 / 1024:.1f} MB")
-    if target_path.exists():
-        target_path.unlink()
-    part_path.replace(target_path)
+    downloaded = 0
+    try:
+        with urlopen(request, timeout=60) as response:
+            total = safe_int(response.headers.get("Content-Length"), 0)
+            last_progress = 10
+            with part_path.open("wb") as output:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    output.write(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        next_progress = 10 + int((downloaded / total) * 85)
+                        if next_progress >= last_progress + 2:
+                            last_progress = min(95, next_progress)
+                            update_task_progress(task_id, last_progress, f"正在下载：{downloaded / 1024 / 1024:.1f} / {total / 1024 / 1024:.1f} MB")
+                # 确保数据真正落盘后再做原子替换，避免检测时文件还在缓冲区。
+                output.flush()
+                try:
+                    os.fsync(output.fileno())
+                except OSError:
+                    pass
+        if downloaded <= 0:
+            raise RuntimeError("下载内容为空（0 字节），请检查网络/代理后重试。")
+        if target_path.exists():
+            target_path.unlink()
+        part_path.replace(target_path)
+    except Exception as exc:
+        # 失败时清理半成品，避免 .part 残留干扰后续判断；并抛出清晰错误供任务层标记失败。
+        try:
+            if part_path.exists():
+                part_path.unlink()
+        except OSError:
+            pass
+        append_task_log(task_id, f"姿态模型下载失败：{exc}")
+        raise RuntimeError(f"姿态模型下载失败：{exc}") from exc
+
+    if not (target_path.exists() and target_path.stat().st_size > 0):
+        raise RuntimeError(f"姿态模型下载后未找到有效权重文件：{target_path}")
     update_task_progress(task_id, 98, "姿态模型权重下载完成。")
     return {"model_key": POSE_MODEL_KEY, "weight_path": str(target_path), "after": env_check_payload()}
 
@@ -3519,9 +3616,13 @@ class AppHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
             self.send_header("Content-Length", str(length))
             self.end_headers()
-            with path.open("rb") as handle:
-                handle.seek(start)
-                self.wfile.write(handle.read(length))
+            try:
+                with path.open("rb") as handle:
+                    handle.seek(start)
+                    self.wfile.write(handle.read(length))
+            except (ConnectionError, OSError):
+                # 客户端（渲染层）提前断开连接，忽略即可。
+                pass
             return
 
         self.send_response(HTTPStatus.OK)
@@ -3530,13 +3631,32 @@ class AppHandler(BaseHTTPRequestHandler):
         if allow_range:
             self.send_header("Accept-Ranges", "bytes")
         self.end_headers()
-        with path.open("rb") as handle:
-            shutil.copyfileobj(handle, self.wfile)
+        try:
+            with path.open("rb") as handle:
+                shutil.copyfileobj(handle, self.wfile)
+        except (ConnectionError, OSError):
+            # 客户端（渲染层）提前断开连接，忽略即可。
+            pass
+
+
+class ResilientThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionError, TimeoutError)):
+            # 客户端断开（含 ConnectionAbortedError/Reset/BrokenPipe），不算错误。
+            return
+        try:
+            print(f"[server] 请求处理异常 {client_address}: {exc}", file=sys.stderr, flush=True)
+        except Exception:
+            pass
 
 
 def serve_once(host: str, port: int) -> None:
     ensure_runtime_dirs()
-    server = ThreadingHTTPServer((host, port), AppHandler)
+    install_resilient_std_streams()
+    server = ResilientThreadingHTTPServer((host, port), AppHandler)
     print(f"Sprite Video Lab running at http://{host}:{port}")
     try:
         server.serve_forever()

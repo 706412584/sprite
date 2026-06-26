@@ -509,6 +509,17 @@ export const useStore = create<Store>((set, get) => {
           exportResult: null,
           message: `批处理完成：${nextJob.frame_count ?? nextJob.frames?.length ?? 0} 帧。`,
         });
+        console.log("[DEBUG-batch-preview] process complete", {
+          frameCount: nextJob.frame_count ?? nextJob.frames?.length ?? 0,
+          jobId: nextJob.job_id ?? nextJob.id ?? "",
+          selectedFrameIndices: nextJob.frames?.map((frame) => frame.index) ?? [],
+          sampleFrames: nextJob.frames?.slice(0, 3).map((frame) => ({
+            index: frame.index,
+            name: frame.name,
+            url: frame.url,
+            thumbUrl: frame.thumb_url,
+          })) ?? [],
+        });
         syncSelectedFramesFromJob(nextJob);
         getModelStatus()
           .then((r) => set({ modelStatuses: r.models, modelCacheDir: r.cache_dir }))

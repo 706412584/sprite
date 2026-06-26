@@ -1,0 +1,9 @@
+version=0.1.7
+{
+ "dev": "vite",
+ "dev:api": "python server.py --host 127.0.0.1 --port 8895",
+ "build": "tsc -b && vite build",
+ "preview": "vite preview",
+ "desktop:dev": "npm run build && node ./scripts/run-electron-desktop.mjs",
+ "package:desktop:win": "node ./scripts/package-desktop-win.mjs"
+}

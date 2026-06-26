@@ -44,6 +44,10 @@ _DATA_URL_KEEP = 96
 mcp = FastMCP("sprite-video-lab")
 
 
+def _log(msg: str) -> None:
+    print(f"[MCP] {msg}", file=os.sys.stderr, flush=True)
+
+
 # ---------------------------------------------------------------------------
 # HTTP helpers (stdlib only)
 # ---------------------------------------------------------------------------
@@ -215,6 +219,7 @@ def _job_summary(job: dict) -> dict:
 
 @mcp.tool()
 def preview_frame(upload_id: str, sample_time: float = 0.0, settings: dict | None = None) -> dict:
+    _log(f"preview_frame upload_id={upload_id} sample_time={sample_time}")
     """对单帧预览去底/抠图效果（不批量处理），用于调参。
 
     upload_id: import_media 返回的 ID。
@@ -247,6 +252,7 @@ def process_video(
     wait: bool = True,
     timeout_s: float = 600.0,
 ) -> dict:
+    _log(f"process_video upload_id={upload_id} start_time={start_time} end_time={end_time} wait={wait}")
     """批量抽帧并去底，生成透明序列帧任务 (job)。这是核心处理工具。
 
     upload_id: import_media 返回的 ID。

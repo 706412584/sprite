@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useAppState, useAppActions } from "@/state/AppContext";
+import { resolveMediaUrl } from "@/api/spriteApi";
 import { RemoteImage } from "@/components/media";
 
 export function AnimationPreview() {
@@ -38,15 +39,19 @@ export function AnimationPreview() {
     if (!canvas || !frame) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    const drawToken = frameRef.current;
     const image = new Image();
     image.onload = () => {
+      if (frameRef.current !== drawToken) return;
       canvas.width = image.naturalWidth || 256;
       canvas.height = image.naturalHeight || 256;
       ctx.fillStyle = previewBackgroundColor;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(image, 0, 0);
     };
-    image.src = frame.url;
+    resolveMediaUrl(frame.url)
+      .then((url) => { image.src = url; })
+      .catch(() => { image.src = frame.url; });
   }
 
   if (frames.length === 0) return null;

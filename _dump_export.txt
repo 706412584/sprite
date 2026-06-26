@@ -1,0 +1,186 @@
+2824 .. 3009
+def export_job(job_id: str, selected_indices: list[int], sheet_columns: int, video_duration_ms: int, compression: dict | None = None) -> dict:
+    compression_settings = normalize_export_compression(compression)
+    if not any([compression_settings["include_sheet"], compression_settings["include_zip"], compression_settings["include_mov"], compression_settings["include_manifest"]]):
+        raise ValueError("select at least one export output")
+
+    manifest = load_job_manifest(job_id)
+    processed_dir = job_dir(job_id) / "processed"
+    target_dir = EXPORTS_DIR / f"{timestamped_id()}-export"
+    frames_dir = target_dir / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+
+    frame_map = {entry["index"]: entry for entry in manifest["frames"]}
+    seen_indices: set[int] = set()
+    indices: list[int] = []
+    for index in selected_indices:
+        if index in frame_map and index not in seen_indices:
+            indices.append(index)
+            seen_indices.add(index)
+    if not indices:
+        raise ValueError("no frames selected for export")
+
+    copied_paths: list[Path] = []
+    for output_index, frame_index in enumerate(indices, start=1):
+        entry = frame_map[frame_index]
+        source_path = processed_dir / entry["name"]
+        target_path = frames_dir / f"frame_{output_index:03d}.png"
+        shutil.copy2(source_path, target_path)
+        copied_paths.append(target_path)
+
+    zip_path = target_dir / "frames.zip"
+    if compression_settings["include_zip"]:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=compression_settings["zip_compress_level"]) as archive:
+            for frame_path in copied_paths:
+                archive.write(frame_path, arcname=frame_path.name)
+    else:
+        zip_path = None
+
+    cell_width = 0
+    cell_height = 0
+    frame_sizes: list[tuple[int, int]] = []
+    for frame_path in copied_paths:
+        frame = open_rgba_image(frame_path)
+        frame_sizes.append(frame.size)
+        cell_width = max(cell_width, frame.size[0])
+        cell_height = max(cell_height, frame.size[1])
+        frame.close()
+    columns = max(1, sheet_columns or round(math.sqrt(len(copied_paths))))
+    rows = math.ceil(len(copied_paths) / columns)
+    padding = 2
+    sheet = None
+    sheet_layout = "grid"
+    frame_positions: list[dict] = []
+
+    # 优先用 rectpack 做紧凑装箱；任何环节异常都回退到规则网格，保证一定能出图，
+    # 且 columns / sheet / frame_positions 等变量在所有分支下都必然已绑定。
+    if HAS_RECTPACK and len(copied_paths) > 1:
+        try:
+            max_w = max(w for w, _ in frame_sizes) + padding
+            max_h = max(h for _, h in frame_sizes) + padding
+            best_sheet = None
+            best_rects = None
+            for cols in range(1, len(copied_paths) + 1):
+                grid_rows = math.ceil(len(copied_paths) / cols)
+                bin_w = max(cols * cell_width + padding * cols, max_w)
+                bin_h = max(grid_rows * cell_height + padding * grid_rows, max_h)
+                test_packer = newPacker(mode=1, bin_algo=2, pack_algo=MaxRectsBssf, rotation=False)
+                for idx, (w, h) in enumerate(frame_sizes):
+                    test_packer.add_rect(w + padding, h + padding, idx)
+                test_packer.add_bin(bin_w, bin_h)
+                test_packer.pack()
+                if len(test_packer[0]) == len(copied_paths):
+                    if best_sheet is None or (bin_w * bin_h < best_sheet[0] * best_sheet[1]):
+                        best_sheet = (bin_w, bin_h)
+                        best_rects = list(test_packer[0])
+            if best_sheet and best_rects:
+                packed_sheet = Image.new("RGBA", best_sheet, (0, 0, 0, 0))
+                ordered: list[dict | None] = [None] * len(copied_paths)
+                for rect in best_rects:
+                    idx = rect.rid
+                    frame = open_rgba_image(copied_paths[idx])
+                    packed_sheet.paste(frame, (rect.x, rect.y), frame)
+                    frame.close()
+                    fw, fh = frame_sizes[idx]
+                    ordered[idx] = {"index": idx, "x": rect.x, "y": rect.y, "width": fw, "height": fh}
+                sheet = packed_sheet
+                sheet_layout = "packed"
+                frame_positions = [pos for pos in ordered if pos is not None]
+        except Exception as exc:
+            print(f"[export] rectpack packing failed, fallback to grid: {exc}")
+            sheet = None
+            sheet_layout = "grid"
+            frame_positions = []
+
+    if sheet is None:
+        sheet = Image.new("RGBA", (columns * cell_width, rows * cell_height), (0, 0, 0, 0))
+        sheet_layout = "grid"
+        frame_positions = []
+        for index, frame_path in enumerate(copied_paths):
+            row = index // columns
+            column = index % columns
+            frame = open_rgba_image(frame_path)
+            frame_width, frame_height = frame_sizes[index]
+            offset_x = column * cell_width + (cell_width - frame_width) // 2
+            offset_y = row * cell_height + (cell_height - frame_height) // 2
+            sheet.paste(frame, (offset_x, offset_y), frame)
+            frame.close()
+            frame_positions.append({"index": index, "x": offset_x, "y": offset_y, "width": frame_width, "height": frame_height})
+    unscaled_sheet_size = sheet.size
+    sheet_path = None
+    webp_sheet_path = None
+    sheet_pixel_size: tuple[int, int] | None = None
+    if compression_settings["include_sheet"]:
+        # 先按最大边长做像素级上限缩放，作为两种格式的共同基准
+        budget_sheet = _scale_sheet_to_max_dimension(sheet, compression_settings["sheet_max_dimension"])
+        target_bytes = compression_settings["sheet_target_kb"] * 1024
+        if compression_settings["sheet_format"] in {"png", "both"}:
+            sheet_path = target_dir / "sprite_sheet.png"
+            sheet_pixel_size, _ = save_sheet_within_budget(
+                budget_sheet,
+                "PNG",
+                sheet_path,
+                target_bytes,
+                {"compress_level": compression_settings["png_compress_level"]},
+            )
+        if compression_settings["sheet_format"] in {"webp", "both"}:
+            webp_sheet_path = target_dir / "sprite_sheet.webp"
+            webp_size, _ = save_sheet_within_budget(
+                budget_sheet,
+                "WEBP",
+                webp_sheet_path,
+                target_bytes,
+                {"quality": compression_settings["webp_quality"], "lossless": False, "method": 6},
+            )
+            if sheet_pixel_size is None:
+                sheet_pixel_size = webp_size
+        if budget_sheet is not sheet:
+            budget_sheet.close()
+    sheet.close()
+
+    video_duration_ms = clamp_int(video_duration_ms, 20, 5000)
+    video_path = target_dir / "animation.mov"
+    if compression_settings["include_mov"]:
+        save_alpha_mov(copied_paths, frame_sizes, video_path, cell_width, cell_height, video_duration_ms)
+    else:
+        video_path = None
+
+    export_manifest = {
+        "job_id": job_id,
+        "selected_indices": indices,
+        "sheet_columns": columns,
+        "cell_width": cell_width,
+        "cell_height": cell_height,
+        "sheet_layout": sheet_layout,
+        "unscaled_sheet_width": unscaled_sheet_size[0],
+        "unscaled_sheet_height": unscaled_sheet_size[1],
+        "frames": frame_positions,
+        "sheet_width": sheet_pixel_size[0] if sheet_pixel_size else None,
+        "sheet_height": sheet_pixel_size[1] if sheet_pixel_size else None,
+        "frame_count": len(copied_paths),
+        "frames_dir": str(frames_dir),
+        "zip_path": str(zip_path) if zip_path else None,
+        "sheet_path": str(sheet_path) if sheet_path else None,
+        "webp_sheet_path": str(webp_sheet_path) if webp_sheet_path else None,
+        "video_path": str(video_path) if video_path else None,
+        "video_duration_ms": video_duration_ms,
+        "compression": compression_settings,
+    }
+    manifest_path = target_dir / "export.json"
+    if compression_settings["include_manifest"]:
+        manifest_path.write_text(json.dumps(export_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    result = {
+        "output_dir": str(target_dir),
+        "frames_dir": str(frames_dir),
+        "zip_url": f"/work/exports/{target_dir.name}/frames.zip" if zip_path else None,
+        "sheet_url": f"/work/exports/{target_dir.name}/sprite_sheet.png" if sheet_path else None,
+        "webp_sheet_url": f"/work/exports/{target_dir.name}/sprite_sheet.webp" if webp_sheet_path else None,
+        "video_url": f"/work/exports/{target_dir.name}/animation.mov" if video_path else None,
+        "manifest_url": f"/work/exports/{target_dir.name}/export.json" if compression_settings["include_manifest"] else None,
+        "frame_count": len(copied_paths),
+        "video_duration_ms": video_duration_ms,
+        "sheet_width": sheet_pixel_size[0] if sheet_pixel_size else None,
+        "sheet_height": sheet_pixel_size[1] if sheet_pixel_size else None,
+    }
+    return {key: value for key, value in result.items() if value is not None}
+

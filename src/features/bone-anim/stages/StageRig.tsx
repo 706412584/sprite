@@ -3,10 +3,10 @@
 // - 在画布上预览骨骼线，槽位列表里把切片绑定到槽位
 // - 部件名称 / pivot 简单微调
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBoneAnim, CharacterPoseMode } from "../BoneAnimContext";
 import { applyTemplate, getTemplateById, skeletonTemplates } from "../model/skeletonTemplates";
-import { AttachmentImage, BoneNode, findBone, findBoneByName, getDisplayName, makeId, Skeleton, Slot } from "../model/skeletonModel";
+import { addBone, removeBone, AttachmentImage, BoneNode, BoneWorld, computeBoneWorld, worldPointToParentLocal, findBone, findBoneByName, getDisplayName, makeId, Skeleton, Slot } from "../model/skeletonModel";
 import { LIMB_LENGTH_PAD } from "../model/poseToParts";
 import { mapPsdLayerToBone } from "../model/psdBoneMapping";
 import { fitSkeletonToPsd } from "../model/fitSkeletonToPsd";
@@ -75,19 +75,54 @@ function computeAttachmentDisplaySize(att: AttachmentImage, bone: BoneNode | und
   return { w: att.width * scale, h: att.height * scale };
 }
 
-interface BoneWorld {
-  x: number;
-  y: number;
-  rot: number;
-}
-
 interface Props {
   onNext: () => void;
 }
 
+/** 递归渲染骨骼树行 */
+function renderBoneTree(
+  bones: BoneNode[],
+  parentId: string | null,
+  depth: number,
+  selectedBoneId: string | null,
+  onSelectBone: (id: string | null) => void,
+  onDeleteBone: (id: string) => void,
+): React.ReactNode[] {
+  const children = bones.filter((b) => b.parentId === parentId);
+  if (children.length === 0) return [];
+  return children.flatMap((bone) => {
+    const row = (
+      <div
+        key={bone.id}
+        className={`bone-tree-row ${selectedBoneId === bone.id ? "selected" : ""}`}
+        style={{ paddingLeft: `${8 + depth * 16}px` }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelectBone(bone.id);
+        }}
+      >
+        <span className="bone-tree-row-name">{getDisplayName(bone)}</span>
+        <button
+          type="button"
+          className="bone-delete-btn"
+          title="删除骨骼"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeleteBone(bone.id);
+          }}
+        >
+          ×
+        </button>
+      </div>
+    );
+    return [row, ...renderBoneTree(bones, bone.id, depth + 1, selectedBoneId, onSelectBone, onDeleteBone)];
+  });
+}
+
 export function StageRig({ onNext }: Props) {
-  const { skeleton, setSkeleton, selectedSlotId, setSelectedSlotId, poseMode, setPoseMode, setPoseDetection, setPoseOverride } = useBoneAnim();
+  const { skeleton, setSkeleton, selectedSlotId, setSelectedSlotId, selectedBoneId, setSelectedBoneId, poseMode, setPoseMode, setPoseDetection, setPoseOverride } = useBoneAnim();
   const [templateId, setTemplateId] = useState<string>("humanoid");
+  const [addBoneMode, setAddBoneMode] = useState<boolean>(false);
 
   const currentTemplate = useMemo(() => getTemplateById(templateId), [templateId]);
 
@@ -281,6 +316,37 @@ export function StageRig({ onNext }: Props) {
     return currentTemplate.slots.find((s) => s.name === selectedSlot.name)?.hint ?? "";
   }, [currentTemplate, selectedSlot]);
 
+  // ---- 骨骼树操作 ----
+  const deleteBone = useCallback(
+    (boneId: string) => {
+      setSkeleton((prev) => removeBone(prev, boneId));
+      if (selectedBoneId === boneId) setSelectedBoneId(null);
+    },
+    [setSkeleton, selectedBoneId, setSelectedBoneId],
+  );
+
+  // 选中的骨骼对象
+  const selectedBone = useMemo(
+    () => (selectedBoneId ? skeleton.bones.find((b) => b.id === selectedBoneId) : undefined),
+    [skeleton.bones, selectedBoneId],
+  );
+
+  const updateBoneField = useCallback(
+    (boneId: string, field: keyof BoneNode, value: number | string) => {
+      setSkeleton((prev) => ({
+        ...prev,
+        bones: prev.bones.map((b) => (b.id === boneId ? { ...b, [field]: value } : b)),
+      }));
+    },
+    [setSkeleton],
+  );
+
+  const deleteSelectedBone = useCallback(() => {
+    if (!selectedBoneId) return;
+    setSkeleton((prev) => removeBone(prev, selectedBoneId));
+    setSelectedBoneId(null);
+  }, [setSkeleton, selectedBoneId, setSelectedBoneId]);
+
   const ready = skeleton.bones.length > 0 && skeleton.slots.some((s) => s.attachmentId);
   const poseNotes: Record<CharacterPoseMode, string> = {
     front: "正面 PSD 可使用人形/细分人形模板，当前 PSD 拟合按左右对称处理。",
@@ -342,10 +408,80 @@ export function StageRig({ onNext }: Props) {
         </aside>
 
         <section className="bone-rig-canvas">
-          <BoneCanvas onSelectSlot={setSelectedSlotId} selectedSlotId={selectedSlotId} />
+          <BoneCanvas
+            onSelectSlot={setSelectedSlotId}
+            selectedSlotId={selectedSlotId}
+            addBoneMode={addBoneMode}
+            onAddBoneModeChange={setAddBoneMode}
+            selectedBoneId={selectedBoneId}
+            onSelectBone={setSelectedBoneId}
+          />
         </section>
 
         <aside className="bone-rig-inspector">
+          {/* ---- 骨骼树 ---- */}
+          <div className="bone-tree">
+            <div className="bone-tree-header">
+              <h4>骨骼树</h4>
+              <button type="button" onClick={() => setAddBoneMode(true)} disabled={addBoneMode}>
+                + 添加
+              </button>
+            </div>
+            {skeleton.bones.length === 0 && <p className="muted">先应用模板或在画布中添加骨骼。</p>}
+            <div className="bone-tree-list">
+              {renderBoneTree(skeleton.bones, null, 0, selectedBoneId, setSelectedBoneId, deleteBone)}
+            </div>
+          </div>
+
+          {/* ---- 选中骨骼属性编辑 ---- */}
+          {selectedBone && (
+            <div className="bone-detail-editor">
+              <h4>骨骼属性</h4>
+              <div className="bone-detail-row">
+                <label>名称</label>
+                <input
+                  value={selectedBone.name}
+                  onChange={(e) => updateBoneField(selectedBone.id, "name", e.target.value)}
+                />
+              </div>
+              <div className="bone-detail-row">
+                <label>X</label>
+                <input
+                  type="number"
+                  value={selectedBone.x}
+                  onChange={(e) => updateBoneField(selectedBone.id, "x", Number(e.target.value))}
+                />
+              </div>
+              <div className="bone-detail-row">
+                <label>Y</label>
+                <input
+                  type="number"
+                  value={selectedBone.y}
+                  onChange={(e) => updateBoneField(selectedBone.id, "y", Number(e.target.value))}
+                />
+              </div>
+              <div className="bone-detail-row">
+                <label>旋转</label>
+                <input
+                  type="number"
+                  value={selectedBone.rotation}
+                  onChange={(e) => updateBoneField(selectedBone.id, "rotation", Number(e.target.value))}
+                />
+              </div>
+              <div className="bone-detail-row">
+                <label>长度</label>
+                <input
+                  type="number"
+                  value={selectedBone.length}
+                  onChange={(e) => updateBoneField(selectedBone.id, "length", Number(e.target.value))}
+                />
+              </div>
+              <button type="button" className="bone-delete-btn" onClick={deleteSelectedBone}>
+                删除骨骼
+              </button>
+            </div>
+          )}
+
           <h4>槽位绑定</h4>
           {skeleton.slots.length === 0 && <p className="muted">先应用模板生成槽位。</p>}
           {skeleton.slots.length > 0 && (
@@ -518,9 +654,17 @@ export function StageRig({ onNext }: Props) {
 function BoneCanvas({
   onSelectSlot,
   selectedSlotId,
+  addBoneMode,
+  onAddBoneModeChange,
+  selectedBoneId,
+  onSelectBone,
 }: {
   onSelectSlot: (id: string) => void;
   selectedSlotId: string | null;
+  addBoneMode: boolean;
+  onAddBoneModeChange: (mode: boolean) => void;
+  selectedBoneId: string | null;
+  onSelectBone: (id: string | null) => void;
 }) {
   const { skeleton, setSkeleton } = useBoneAnim();
   const [dragging, setDragging] = useState<{ boneId: string; mode: DragMode } | null>(null);
@@ -602,15 +746,50 @@ function BoneCanvas({
     [dragging, setSkeleton, toLocalPoint],
   );
 
+  // Escape 键退出添加骨骼模式
+  useEffect(() => {
+    if (!addBoneMode) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onAddBoneModeChange(false);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [addBoneMode, onAddBoneModeChange]);
+
+  // 在画布中点击添加骨骼
+  const handleCanvasClickAddBone = useCallback(
+    (evt: React.PointerEvent<SVGSVGElement>) => {
+      if (!addBoneMode) return;
+      const local = toLocalPoint(evt);
+      // 找最近的已有骨骼作为父骨骼；如果没有骨骼则挂到根
+      let parentId: string | null = null;
+      let minDist = Infinity;
+      for (const [id, w] of worldByBone.entries()) {
+        const d = Math.hypot(local.x - w.x, local.y - w.y);
+        if (d < minDist) {
+          minDist = d;
+          parentId = id;
+        }
+      }
+      // 如果最近骨骼太远（>200px），直接挂到根
+      if (minDist > 200) parentId = null;
+      setSkeleton((prev) => addBone(prev, { parentId, x: local.x, y: local.y }));
+      onAddBoneModeChange(false);
+    },
+    [addBoneMode, toLocalPoint, worldByBone, setSkeleton, onAddBoneModeChange],
+  );
+
   return (
     <svg
       width="100%"
       height={h}
       viewBox={`0 0 ${w} ${h}`}
       className="bone-canvas"
+      style={addBoneMode ? { cursor: "crosshair" } : undefined}
       onPointerMove={updateDraggedBone}
       onPointerUp={() => setDragging(null)}
       onPointerLeave={() => setDragging(null)}
+      onClick={addBoneMode ? handleCanvasClickAddBone : undefined}
     >
       {/* 网格 */}
       <defs>
@@ -735,31 +914,6 @@ function BoneCanvas({
       })}
     </svg>
   );
-}
-
-function computeBoneWorld(bones: BoneNode[]): Map<string, BoneWorld> {
-  const worldByBone = new Map<string, BoneWorld>();
-  for (const bone of bones) {
-    const parent = bone.parentId ? worldByBone.get(bone.parentId) : undefined;
-    const baseX = parent?.x ?? 0;
-    const baseY = parent?.y ?? 0;
-    const baseRot = parent?.rot ?? 0;
-    const rad = (baseRot * Math.PI) / 180;
-    const x = baseX + bone.x * Math.cos(rad) - bone.y * Math.sin(rad);
-    const y = baseY + bone.x * Math.sin(rad) + bone.y * Math.cos(rad);
-    worldByBone.set(bone.id, { x, y, rot: baseRot + bone.rotation });
-  }
-  return worldByBone;
-}
-
-function worldPointToParentLocal(point: { x: number; y: number }, parent?: BoneWorld): { x: number; y: number } {
-  const dx = point.x - (parent?.x ?? 0);
-  const dy = point.y - (parent?.y ?? 0);
-  const rad = -((parent?.rot ?? 0) * Math.PI) / 180;
-  return {
-    x: Math.round(dx * Math.cos(rad) - dy * Math.sin(rad)),
-    y: Math.round(dx * Math.sin(rad) + dy * Math.cos(rad)),
-  };
 }
 
 function normalizeDeg(deg: number): number {

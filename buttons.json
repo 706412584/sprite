@@ -1,0 +1,27 @@
+[
+  {
+    "i": 0,
+    "text": "重启 Python",
+    "disabled": true
+  },
+  {
+    "i": 1,
+    "text": "选择",
+    "disabled": false
+  },
+  {
+    "i": 2,
+    "text": "导入",
+    "disabled": false
+  },
+  {
+    "i": 3,
+    "text": "导入图片帧",
+    "disabled": false
+  },
+  {
+    "i": 4,
+    "text": "导入帧文件夹",
+    "disabled": false
+  }
+]

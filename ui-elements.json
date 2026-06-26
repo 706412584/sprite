@@ -1,0 +1,58 @@
+[
+  {
+    "tag": "INPUT",
+    "text": "",
+    "type": "file",
+    "id": "",
+    "className": ""
+  },
+  {
+    "tag": "BUTTON",
+    "text": "重启 Python",
+    "type": null,
+    "id": "",
+    "className": ""
+  },
+  {
+    "tag": "BUTTON",
+    "text": "选择",
+    "type": null,
+    "id": "",
+    "className": ""
+  },
+  {
+    "tag": "BUTTON",
+    "text": "导入",
+    "type": null,
+    "id": "",
+    "className": ""
+  },
+  {
+    "tag": "BUTTON",
+    "text": "导入图片帧",
+    "type": null,
+    "id": "",
+    "className": ""
+  },
+  {
+    "tag": "BUTTON",
+    "text": "导入帧文件夹",
+    "type": null,
+    "id": "",
+    "className": ""
+  },
+  {
+    "tag": "INPUT",
+    "text": "",
+    "type": "file",
+    "id": "",
+    "className": ""
+  },
+  {
+    "tag": "INPUT",
+    "text": "",
+    "type": "file",
+    "id": "",
+    "className": ""
+  }
+]
