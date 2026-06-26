@@ -125,6 +125,10 @@ from sprite_lab.imaging.canvas import (
 from sprite_lab.imaging.chroma import chroma_key_frame, spriteflow_key_frame
 from sprite_lab.imaging.luma import luminance_alpha_mask, apply_alpha_mask
 from sprite_lab.imaging.color import parse_hex_color, rgb_to_hex, auto_key_color
+try:
+    import sprite_matte_parallel as _smp  # B: 多核并行抠图工作模块
+except Exception:  # 模块缺失时降级为串行，不影响功能
+    _smp = None
 from sprite_lab.utils.fs import (
     clean_filename,
     repair_mojibake_text,
@@ -1184,6 +1188,99 @@ def birefnet_alpha_mask(
     }
 
 
+def birefnet_alpha_mask_batch(
+    images: list[Image.Image],
+    model_key: str,
+    requested_device: str,
+    inference_resolution: int,
+    batch_size: int = 0,
+) -> tuple[list[Image.Image], dict]:
+    """批量版 BiRefNet：把多帧 torch.stack 成一个 batch 一次前向，显著提升 GPU 利用率。
+
+    - GPU 默认每批 4 帧（可用环境变量 SPRITE_BIREFNET_BATCH 覆盖）；CPU 不分批。
+    - 遇到 CUDA 显存不足（OOM）自动清缓存并退回逐帧，保证不崩。
+    - 输出与逐帧版 birefnet_alpha_mask 数值等价（模型 eval 模式，BN 用 running stats，与 batch 无关）。
+    """
+    if not images:
+        return [], {}
+    torch_module, transforms, _auto_model = import_ai_matte_dependencies()
+    model, device, normalized_model_key, repo_id = load_birefnet_model(model_key, requested_device)
+    resolution = normalize_ai_resolution(inference_resolution)
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
+    to_pil = transforms.ToPILImage()
+    try:
+        model_dtype = next(model.parameters()).dtype
+    except StopIteration:
+        model_dtype = None
+
+    is_cuda = str(device).startswith("cuda")
+    if batch_size <= 0:
+        if is_cuda:
+            env_bs = os.environ.get("SPRITE_BIREFNET_BATCH", "").strip()
+            batch_size = int(env_bs) if env_bs.isdigit() and int(env_bs) > 0 else 4
+        else:
+            batch_size = 1
+    batch_size = max(1, batch_size)
+
+    fitted = [fit_image_to_square(img, resolution) for img in images]
+
+    def _infer(tensor_batch):
+        if is_cuda and model_dtype in {torch_module.float16, torch_module.bfloat16}:
+            tensor_batch = tensor_batch.to(dtype=model_dtype)
+        with torch_module.no_grad():
+            return model(tensor_batch)[-1].sigmoid().to("cpu")
+
+    def _mask_from(pred_row, box, target_size):
+        mask = to_pil(pred_row.squeeze()).convert("L")
+        return mask.crop(box).resize(target_size, LANCZOS)
+
+    masks: list[Image.Image] = []
+    index = 0
+    while index < len(images):
+        chunk = fitted[index:index + batch_size]
+        chunk_imgs = images[index:index + batch_size]
+        tensors = [transform(fi).to(device) for fi, _ in chunk]
+        batch_tensor = torch_module.stack(tensors, dim=0)
+        try:
+            prediction = _infer(batch_tensor)
+            for offset, (orig, (_fi, box)) in enumerate(zip(chunk_imgs, chunk)):
+                masks.append(_mask_from(prediction[offset], box, orig.size))
+        except RuntimeError as exc:
+            if "out of memory" not in str(exc).lower():
+                raise
+            if is_cuda:
+                try:
+                    torch_module.cuda.empty_cache()
+                except Exception:
+                    pass
+            for (fi, box), orig in zip(chunk, chunk_imgs):
+                single = torch_module.stack([transform(fi).to(device)], dim=0)
+                pred = _infer(single)
+                masks.append(_mask_from(pred[0], box, orig.size))
+        finally:
+            if is_cuda:
+                try:
+                    torch_module.cuda.empty_cache()
+                except Exception:
+                    pass
+        index += batch_size
+
+    info = {
+        "model_key": normalized_model_key,
+        "model_label": AI_MATTE_MODEL_LABELS[normalized_model_key],
+        "repo_id": repo_id,
+        "device": device,
+        "resolution": resolution,
+        "batch_size": batch_size,
+    }
+    return masks, info
+
+
 def despill_alpha_edges(
     image: Image.Image,
     key_rgb: tuple[int, int, int],
@@ -1297,6 +1394,113 @@ def edge_decontaminate(image: Image.Image, radius: int = 2, strength: float = 1.
     return result
 
 
+_MATTE_PARALLEL_MIN = 6
+
+
+def _matte_progress_cb(on_progress):
+    """把 run_parallel 的 (done,total) 进度映射到 on_progress(percent, message)。"""
+    if not on_progress:
+        return None
+
+    def _cb(done, total):
+        percent = 40 + (done * 23 // max(1, total))
+        on_progress(percent, f"执行抠图流水线：{done}/{total} 帧")
+
+    return _cb
+
+
+def _parallel_finalize_alpha(raw_images, alphas, key_rgb, despill_strength, on_progress):
+    """对（原图 + 预先算好的 alpha）做 apply + despill；多核并行，缺模块时串行。"""
+    if _smp is None:
+        keyed = []
+        for idx, raw_image in enumerate(raw_images):
+            frame = apply_alpha_mask(raw_image, alphas[idx])
+            frame = despill_alpha_edges(frame, key_rgb, despill_strength)
+            keyed.append(frame)
+            if on_progress:
+                on_progress(40 + ((idx + 1) * 23 // max(1, len(raw_images))), f"执行抠图流水线：{idx + 1}/{len(raw_images)} 帧")
+        return keyed
+    payloads = [
+        {
+            "raw": _smp.dump_image(raw_images[i]),
+            "alpha": _smp.dump_image(alphas[i]),
+            "key_rgb": key_rgb,
+            "despill_strength": despill_strength,
+            "halo_pixels": 0,
+        }
+        for i in range(len(raw_images))
+    ]
+    return _smp.run_parallel(_smp.worker_finalize_alpha, payloads, min_items=_MATTE_PARALLEL_MIN, progress_cb=_matte_progress_cb(on_progress))
+
+
+def _parallel_luma(raw_images, matte_info, key_rgb, on_progress):
+    """纯 CPU luma 抠图按帧并行。"""
+    if _smp is None:
+        keyed = []
+        for idx, raw_image in enumerate(raw_images):
+            alpha = luminance_alpha_mask(
+                raw_image,
+                matte_info["luma_black"],
+                max(matte_info["luma_black"] + 1, matte_info["luma_white"]),
+                matte_info["luma_gamma"],
+                matte_info["luma_strength"],
+                key_rgb=key_rgb,
+            )
+            if matte_info["halo_pixels"] > 0:
+                alpha = alpha.filter(ImageFilter.MinFilter((matte_info["halo_pixels"] * 2) + 1))
+            frame = apply_alpha_mask(raw_image, alpha)
+            frame = despill_alpha_edges(frame, key_rgb, matte_info["despill_strength"])
+            keyed.append(frame)
+            if on_progress:
+                on_progress(40 + ((idx + 1) * 23 // max(1, len(raw_images))), f"执行抠图流水线：{idx + 1}/{len(raw_images)} 帧")
+        return keyed
+    payloads = [
+        {
+            "raw": _smp.dump_image(raw_image),
+            "key_rgb": key_rgb,
+            "luma_black": matte_info["luma_black"],
+            "luma_white": matte_info["luma_white"],
+            "luma_gamma": matte_info["luma_gamma"],
+            "luma_strength": matte_info["luma_strength"],
+            "halo_pixels": matte_info["halo_pixels"],
+            "despill_strength": matte_info["despill_strength"],
+        }
+        for raw_image in raw_images
+    ]
+    return _smp.run_parallel(_smp.worker_luma, payloads, min_items=_MATTE_PARALLEL_MIN, progress_cb=_matte_progress_cb(on_progress))
+
+
+def _parallel_chroma(raw_images, key_rgb, threshold, softness, despill_strength, halo_pixels, on_progress):
+    """纯 CPU chroma 抠图按帧并行。"""
+    if _smp is None:
+        keyed = []
+        for idx, raw_image in enumerate(raw_images):
+            frame = chroma_key_frame(
+                image=raw_image,
+                key_rgb=key_rgb,
+                threshold=threshold,
+                softness=softness,
+                despill_strength=despill_strength,
+                halo_pixels=halo_pixels,
+            )
+            keyed.append(frame)
+            if on_progress:
+                on_progress(40 + ((idx + 1) * 23 // max(1, len(raw_images))), f"执行抠图流水线：{idx + 1}/{len(raw_images)} 帧")
+        return keyed
+    payloads = [
+        {
+            "raw": _smp.dump_image(raw_image),
+            "key_rgb": key_rgb,
+            "threshold": threshold,
+            "softness": softness,
+            "despill_strength": despill_strength,
+            "halo_pixels": halo_pixels,
+        }
+        for raw_image in raw_images
+    ]
+    return _smp.run_parallel(_smp.worker_chroma, payloads, min_items=_MATTE_PARALLEL_MIN, progress_cb=_matte_progress_cb(on_progress))
+
+
 def apply_matte_pipeline(
     raw_images: list[Image.Image],
     chroma_enabled: bool,
@@ -1383,12 +1587,19 @@ def apply_matte_pipeline(
         corridor_info: dict | None = None
         pipe_has_corridorkey = "corridorkey" in pipeline
 
+        # A: BiRefNet 批量推理——一次性算好所有帧的 AI alpha，替代逐帧前向
+        birefnet_alpha_cache: list[Image.Image] | None = None
+        if "birefnet" in pipeline:
+            birefnet_alpha_cache, ai_info = birefnet_alpha_mask_batch(
+                raw_images, ai_model, ai_device, ai_resolution
+            )
+
         for raw_index, raw_image in enumerate(raw_images):
             accumulated_alpha: Image.Image | None = None
             for step_index, step_mode in enumerate(pipeline):
                 step_alpha: Image.Image | None = None
                 if step_mode == "birefnet":
-                    step_alpha, ai_info = birefnet_alpha_mask(raw_image, ai_model, ai_device, ai_resolution)
+                    step_alpha = birefnet_alpha_cache[raw_index] if birefnet_alpha_cache else None
                 elif step_mode == "luma":
                     step_alpha = luminance_alpha_mask(
                         raw_image,
@@ -1461,18 +1672,18 @@ def apply_matte_pipeline(
 
     # 以下为旧单模式兼容路径
     if mode in {"chroma", "corridorkey"}:
-        keyed_frames = []
         corridor_info: dict | None = None
-        for raw_index, raw_image in enumerate(raw_images):
-            chroma_frame = chroma_key_frame(
-                image=raw_image,
-                key_rgb=key_rgb,
-                threshold=threshold,
-                softness=softness,
-                despill_strength=despill_strength,
-                halo_pixels=halo_pixels,
-            )
-            if use_corridorkey:
+        if use_corridorkey:
+            keyed_frames = []
+            for raw_index, raw_image in enumerate(raw_images):
+                chroma_frame = chroma_key_frame(
+                    image=raw_image,
+                    key_rgb=key_rgb,
+                    threshold=threshold,
+                    softness=softness,
+                    despill_strength=despill_strength,
+                    halo_pixels=halo_pixels,
+                )
                 refined_frame, corridor_info = corridorkey_refine_frame(
                     raw_image,
                     chroma_frame.getchannel("A"),
@@ -1481,11 +1692,14 @@ def apply_matte_pipeline(
                     matte_info["despill_strength"],
                 )
                 keyed_frames.append(refined_frame)
-            else:
-                keyed_frames.append(chroma_frame)
-            if on_progress:
-                percent = 40 + ((raw_index + 1) * 23 // max(1, len(raw_images)))
-                on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
+                if on_progress:
+                    percent = 40 + ((raw_index + 1) * 23 // max(1, len(raw_images)))
+                    on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
+        else:
+            # B: 纯 CPU chroma 抠图按帧并行
+            keyed_frames = _parallel_chroma(
+                raw_images, key_rgb, threshold, softness, despill_strength, halo_pixels, on_progress
+            )
         if corridor_info:
             matte_info.update(corridor_info)
         if matte_info["decontaminate_enabled"]:
@@ -1520,38 +1734,21 @@ def apply_matte_pipeline(
 
     if mode == "luma":
         _dbg(f"进入 luma 分支: 帧数={len(raw_images)}")
-        keyed_frames: list[Image.Image] = []
-        for raw_index, raw_image in enumerate(raw_images):
-            if on_progress:
-                percent = 40 + ((raw_index + 1) * 23 // max(1, len(raw_images)))
-                on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
-            alpha = luminance_alpha_mask(
-                raw_image,
-                matte_info["luma_black"],
-                max(matte_info["luma_black"] + 1, matte_info["luma_white"]),
-                matte_info["luma_gamma"],
-                matte_info["luma_strength"],
-                key_rgb=key_rgb,
-            )
-            if matte_info["halo_pixels"] > 0:
-                filter_size = (matte_info["halo_pixels"] * 2) + 1
-                alpha = alpha.filter(ImageFilter.MinFilter(filter_size))
-            keyed_frame = apply_alpha_mask(raw_image, alpha)
-            keyed_frame = despill_alpha_edges(keyed_frame, key_rgb, matte_info["despill_strength"])
-            keyed_frames.append(keyed_frame)
+        # B: 纯 CPU luma 抠图按帧并行
+        keyed_frames = _parallel_luma(raw_images, matte_info, key_rgb, on_progress)
         if matte_info["decontaminate_enabled"]:
             keyed_frames = [edge_decontaminate(f, matte_info["decontaminate_radius"], matte_info["decontaminate_strength"]) for f in keyed_frames]
         return keyed_frames, key_rgb, matte_info
 
     _dbg(f"进入 birefnet 默认分支: mode={mode}, 帧数={len(raw_images)}")
-    keyed_frames: list[Image.Image] = []
-    ai_info: dict | None = None
     corridor_info: dict | None = None
+    # A: BiRefNet 批量推理——一次前向算好所有帧 AI alpha
+    ai_alpha_list, ai_info = birefnet_alpha_mask_batch(raw_images, ai_model, ai_device, ai_resolution)
+
+    # 预计算每帧最终 alpha（halo 腐蚀 + 可选 luma 合并）
+    final_alphas: list[Image.Image] = []
     for raw_index, raw_image in enumerate(raw_images):
-        if on_progress:
-            percent = 40 + ((raw_index + 1) * 23 // max(1, len(raw_images)))
-            on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
-        ai_alpha, ai_info = birefnet_alpha_mask(raw_image, ai_model, ai_device, ai_resolution)
+        ai_alpha = ai_alpha_list[raw_index]
         if matte_info["halo_pixels"] > 0:
             filter_size = (matte_info["halo_pixels"] * 2) + 1
             ai_alpha = ai_alpha.filter(ImageFilter.MinFilter(filter_size))
@@ -1564,21 +1761,30 @@ def apply_matte_pipeline(
                 matte_info["luma_strength"],
                 key_rgb=key_rgb,
             )
-            alpha = ImageChops.lighter(ai_alpha, luma_alpha)
+            final_alphas.append(ImageChops.lighter(ai_alpha, luma_alpha))
         else:
-            alpha = ai_alpha
-        if use_corridorkey:
+            final_alphas.append(ai_alpha)
+
+    if use_corridorkey:
+        # corridorkey 依赖 GPU 模型、无法跨进程，保持串行
+        keyed_frames = []
+        for raw_index, raw_image in enumerate(raw_images):
             keyed_frame, corridor_info = corridorkey_refine_frame(
                 raw_image,
-                alpha,
+                final_alphas[raw_index],
                 ai_device,
                 resolved_corridorkey_screen,
                 matte_info["despill_strength"],
             )
-        else:
-            keyed_frame = apply_alpha_mask(raw_image, alpha)
-            keyed_frame = despill_alpha_edges(keyed_frame, key_rgb, matte_info["despill_strength"])
-        keyed_frames.append(keyed_frame)
+            keyed_frames.append(keyed_frame)
+            if on_progress:
+                percent = 40 + ((raw_index + 1) * 23 // max(1, len(raw_images)))
+                on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
+    else:
+        # B: 纯 CPU 的 apply+despill 按帧并行
+        keyed_frames = _parallel_finalize_alpha(
+            raw_images, final_alphas, key_rgb, matte_info["despill_strength"], on_progress
+        )
 
     if ai_info:
         matte_info.update(ai_info)

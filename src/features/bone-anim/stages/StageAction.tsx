@@ -5,6 +5,8 @@ import { useCallback, useMemo, useState } from "react";
 import { useBoneAnim } from "../BoneAnimContext";
 import { actionTemplates, ActionTemplateParam, applyAction, defaultParamsFor, getActionTemplate, TEMPLATE_PRESET_POSE } from "../model/actionTemplates";
 import { CharacterPose } from "../model/poseDetector";
+import { FramesToMotionPanel } from "./FramesToMotionPanel";
+import { AttachmentPointEditor } from "./AttachmentPointEditor";
 
 interface Props {
   onNext: () => void;
@@ -219,6 +221,10 @@ export function StageAction({ onNext }: Props) {
           )}
         </section>
       </div>
+
+      <FramesToMotionPanel />
+
+      <AttachmentPointEditor />
 
       <div className="export-actions">
         <button onClick={onNext} disabled={!ready}>

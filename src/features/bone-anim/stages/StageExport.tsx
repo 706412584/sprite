@@ -9,16 +9,18 @@ import { exportSpineJson } from "../exporters/spineJsonExporter";
 import { exportSpineSkel } from "../exporters/spineSkelExporter";
 import { blobToUint8, buildZip, downloadBytes } from "../exporters/zipBuilder";
 import { safeName } from "../model/skeletonModel";
+import { skeletonPointsJsonString, pointsJsonFileName } from "../exporters/pointsJsonExporter";
 
 interface ExportFlags {
   dragonBones: boolean;
   spineJson: boolean;
   spineSkel: boolean;
+  pointsJson: boolean;
 }
 
 export function StageExport() {
   const { skeleton } = useBoneAnim();
-  const [flags, setFlags] = useState<ExportFlags>({ dragonBones: false, spineJson: true, spineSkel: false });
+  const [flags, setFlags] = useState<ExportFlags>({ dragonBones: false, spineJson: true, spineSkel: false, pointsJson: true });
   const [acceptSpineLicense, setAcceptSpineLicense] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -31,7 +33,7 @@ export function StageExport() {
     return out;
   }, [skeleton]);
 
-  const canExport = issues.length === 0 && (flags.dragonBones || flags.spineJson || flags.spineSkel);
+  const canExport = issues.length === 0 && (flags.dragonBones || flags.spineJson || flags.spineSkel || flags.pointsJson);
 
   const doExport = useCallback(async () => {
     if (!canExport) return;
@@ -68,6 +70,14 @@ export function StageExport() {
         if (!flags.spineJson && !flags.dragonBones) {
           files.push({ name: `${baseName}_tex.png`, data: await blobToUint8(atlas.pngBlob) });
         }
+      }
+
+      if (flags.pointsJson) {
+        setMessage("生成可复用骨骼+挂点 JSON…");
+        files.push({
+          name: pointsJsonFileName(skeleton, { fileBaseName: baseName }),
+          data: skeletonPointsJsonString(skeleton, { fileBaseName: baseName }),
+        });
       }
 
       // 附带一份说明
@@ -134,6 +144,20 @@ export function StageExport() {
         <label className="bone-export-row">
           <input
             type="checkbox"
+            checked={flags.pointsJson}
+            onChange={(e) => setFlags((f) => ({ ...f, pointsJson: e.target.checked }))}
+          />
+          <div>
+            <strong>可复用骨骼+挂点 JSON（引擎运行时）</strong>
+            <small>
+              输出 xxx.points.json：骨骼层级 + 发射点定义 + 每条动画逐帧的骨骼/挂点世界坐标（含速度），不依赖任何引擎运行时。
+            </small>
+          </div>
+        </label>
+
+        <label className="bone-export-row">
+          <input
+            type="checkbox"
             checked={flags.spineSkel}
             onChange={(e) => setFlags((f) => ({ ...f, spineSkel: e.target.checked }))}
           />
@@ -183,6 +207,9 @@ function buildReadme(skeleton: { name: string; bones: unknown[]; slots: unknown[
     files.push(`${baseName}.skel`);
     if (!flags.spineJson && !flags.dragonBones) files.push(`${baseName}_tex.png`);
   }
+  if (flags.pointsJson) {
+    files.push(`${baseName}.points.json`);
+  }
 
   return [
     `Bone Animation Export`,
@@ -196,6 +223,7 @@ function buildReadme(skeleton: { name: string; bones: unknown[]; slots: unknown[
     `  - Spine JSON:       ${flags.spineJson ? "yes (layout-tool suite: xxx.json + xxx.atlas + xxx.png)" : "no"}`,
     `  - DragonBones JSON: ${flags.dragonBones ? "yes (xxx_ske.json + xxx_tex.json + xxx_tex.png)" : "no"}`,
     `  - Spine .skel:      ${flags.spineSkel ? "yes (experimental)" : "no"}`,
+    `  - Points JSON:      ${flags.pointsJson ? "yes (xxx.points.json: bones + attachment points + per-frame world coords)" : "no"}`,
     ``,
     `expected files:`,
     ...files.map((file) => `  - ${file}`),

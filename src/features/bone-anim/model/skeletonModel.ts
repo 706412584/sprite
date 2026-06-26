@@ -53,6 +53,25 @@ export interface Slot {
   setupOffset?: { x: number; y: number; rotation: number };
 }
 
+/**
+ * 挂点 / 发射点：绑定到某根骨骼上的命名参考点（枪口、弹道发射点、特效锚点等）。
+ * 与 AttachmentImage 不同——它不承载贴图，只存“骨骼 + 局部偏移/角度”，
+ * 运行时按骨骼世界变换逐帧解算出世界坐标，供引擎做粒子 / 弹道发射。
+ */
+export interface AttachmentPoint {
+  id: string;
+  name: string; // safe filename / 引擎里的发射点 id
+  /** 显示名（"英文_中文"，仅 UI 可读，导出仍用 name） */
+  displayName?: string;
+  boneId: string; // 绑定骨骼
+  // 相对绑定骨骼 joint 的本地偏移（编辑态单位，y 向下为正）
+  x: number;
+  y: number;
+  rotation: number; // 本地朝向偏移（度）
+  /** UI 标记颜色，仅展示用 */
+  color?: string;
+}
+
 export type KeyframeChannel = "translate" | "rotate" | "scale";
 export type KeyframeEasing = "linear" | "stepped" | "easeIn" | "easeOut" | "easeInOut";
 
@@ -93,6 +112,8 @@ export interface Skeleton {
   slots: Slot[];
   attachments: AttachmentImage[];
   animations: Animation[];
+  /** 挂点 / 发射点（可选，旧数据可能没有此字段，读取时用 `skel.points ?? []`） */
+  points?: AttachmentPoint[];
 }
 
 // 工厂函数 / 工具方法
@@ -106,6 +127,7 @@ export function createEmptySkeleton(name = "skeleton"): Skeleton {
     slots: [],
     attachments: [],
     animations: [],
+    points: [],
   };
 }
 
@@ -127,6 +149,10 @@ export function findSlot(skel: Skeleton, slotId: string): Slot | undefined {
 
 export function findAttachment(skel: Skeleton, attId: string): AttachmentImage | undefined {
   return skel.attachments.find((a) => a.id === attId);
+}
+
+export function findAttachmentPoint(skel: Skeleton, pointId: string): AttachmentPoint | undefined {
+  return (skel.points ?? []).find((p) => p.id === pointId);
 }
 
 // 把名称规范化成 atlas / 文件系统安全的 ASCII 名
@@ -248,8 +274,9 @@ export function removeBone(skel: Skeleton, boneId: string): Skeleton {
   const slots = skel.slots.map((s) =>
     toDelete.has(s.boneId) ? { ...s, attachmentId: null } : s,
   );
+  const points = (skel.points ?? []).filter((p) => !toDelete.has(p.boneId));
 
-  return { ...skel, bones, animations, slots };
+  return { ...skel, bones, animations, slots, points };
 }
 
 /** 改变骨骼父节点，保持世界坐标不变。检测循环引用。 */
