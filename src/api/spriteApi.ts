@@ -38,19 +38,45 @@ function normalizeUpload(upload: UploadInfo): UploadInfo {
   };
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
-  const response = await fetch(await resolveApiPath(path), {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload?.ok === false) {
-    throw new Error(payload?.error || `请求失败：${response.status}`);
+async function fetchWithTimeout(url: string, init: RequestInit & { timeoutMs?: number }): Promise<Response> {
+  const { timeoutMs, ...fetchInit } = init;
+  if (!timeoutMs) return fetch(url, fetchInit);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...fetchInit, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
   }
-  return payload as ApiResult<T>;
+}
+
+async function requestJson<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<ApiResult<T>> {
+  const url = await resolveApiPath(path);
+  const maxRetries = 2;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetchWithTimeout(url, {
+        ...init,
+        timeoutMs: init?.timeoutMs ?? 300_000,
+        headers: {
+          "Content-Type": "application/json",
+          ...(init?.headers || {}),
+        },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(payload?.error || `请求失败：${response.status}`);
+      }
+      return payload as ApiResult<T>;
+    } catch (error) {
+      lastError = error;
+      const isNetworkError = error instanceof TypeError || (error instanceof DOMException && error.name === "AbortError");
+      if (!isNetworkError || attempt === maxRetries) break;
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 async function requestUpload(path: string, form: FormData): Promise<ApiResult<{ upload: UploadInfo }>> {

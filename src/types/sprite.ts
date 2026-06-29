@@ -202,4 +202,10 @@ export interface ProcessSettings {
   decontaminate_radius: number;
   decontaminate_strength: number;
   matte_pipeline: AtomicKeyingMode[];
+  crop_x: number;
+  crop_y: number;
+  crop_w: number;
+  crop_h: number;
+  effect_protection_enabled: boolean;
+  effect_protection_threshold: number;
 }

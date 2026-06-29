@@ -524,7 +524,9 @@ def load_birefnet_model(model_key: str, requested_device: str):
             pass
 
     cache_dir = configure_ai_model_cache()
-    model = auto_model.from_pretrained(repo_id, trust_remote_code=True, cache_dir=str(cache_dir))
+    # 已缓存时用 local_files_only 跳过 HuggingFace 网络检查，避免网络超时卡住
+    already_cached, _ = hf_repo_cached(cache_dir, repo_id)
+    model = auto_model.from_pretrained(repo_id, trust_remote_code=True, cache_dir=str(cache_dir), local_files_only=already_cached)
     model.to(device)
     model.eval()
     _BIREFNET_MODEL_CACHE[cache_key] = model
@@ -641,8 +643,9 @@ def load_human_parse_model(requested_device: str):
         return _HUMAN_PARSE_MODEL_CACHE[cache_key], device
 
     cache_dir = configure_ai_model_cache()
-    processor = image_processor_cls.from_pretrained(HUMAN_PARSE_MODEL_REPO, cache_dir=str(cache_dir))
-    model = auto_model.from_pretrained(HUMAN_PARSE_MODEL_REPO, cache_dir=str(cache_dir))
+    already_cached, _ = hf_repo_cached(cache_dir, HUMAN_PARSE_MODEL_REPO)
+    processor = image_processor_cls.from_pretrained(HUMAN_PARSE_MODEL_REPO, cache_dir=str(cache_dir), local_files_only=already_cached)
+    model = auto_model.from_pretrained(HUMAN_PARSE_MODEL_REPO, cache_dir=str(cache_dir), local_files_only=already_cached)
     model.to(device)
     model.eval()
     bundle = {"model": model, "processor": processor}
@@ -1183,7 +1186,7 @@ def birefnet_alpha_mask(
         "model_key": normalized_model_key,
         "model_label": AI_MATTE_MODEL_LABELS[normalized_model_key],
         "repo_id": repo_id,
-        "device": device,
+        "device": str(device),
         "resolution": resolution,
     }
 
@@ -1194,6 +1197,7 @@ def birefnet_alpha_mask_batch(
     requested_device: str,
     inference_resolution: int,
     batch_size: int = 0,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> tuple[list[Image.Image], dict]:
     """批量版 BiRefNet：把多帧 torch.stack 成一个 batch 一次前向，显著提升 GPU 利用率。
 
@@ -1227,7 +1231,9 @@ def birefnet_alpha_mask_batch(
             batch_size = 1
     batch_size = max(1, batch_size)
 
-    fitted = [fit_image_to_square(img, resolution) for img in images]
+    # 模型加载完成后立即报告一次进度，避免首轮推理耗时过长触发前端停滞检测
+    if progress_cb:
+        progress_cb(1, len(images))
 
     def _infer(tensor_batch):
         if is_cuda and model_dtype in {torch_module.float16, torch_module.bfloat16}:
@@ -1239,16 +1245,20 @@ def birefnet_alpha_mask_batch(
         mask = to_pil(pred_row.squeeze()).convert("L")
         return mask.crop(box).resize(target_size, LANCZOS)
 
+    import gc
     masks: list[Image.Image] = []
     index = 0
     while index < len(images):
-        chunk = fitted[index:index + batch_size]
-        chunk_imgs = images[index:index + batch_size]
-        tensors = [transform(fi).to(device) for fi, _ in chunk]
+        # 流式处理：每批只加载当前 batch 的帧，推理完立即释放
+        chunk_src = images[index:index + batch_size]
+        chunk_imgs = [open_rgba_image(item) if isinstance(item, (str, Path)) else item for item in chunk_src]
+        chunk_fitted = [fit_image_to_square(img, resolution) for img in chunk_imgs]
+        tensors = [transform(fi).to(device) for fi, _ in chunk_fitted]
         batch_tensor = torch_module.stack(tensors, dim=0)
+        prediction = None
         try:
             prediction = _infer(batch_tensor)
-            for offset, (orig, (_fi, box)) in enumerate(zip(chunk_imgs, chunk)):
+            for offset, (orig, (_fi, box)) in enumerate(zip(chunk_imgs, chunk_fitted)):
                 masks.append(_mask_from(prediction[offset], box, orig.size))
         except RuntimeError as exc:
             if "out of memory" not in str(exc).lower():
@@ -1258,7 +1268,7 @@ def birefnet_alpha_mask_batch(
                     torch_module.cuda.empty_cache()
                 except Exception:
                     pass
-            for (fi, box), orig in zip(chunk, chunk_imgs):
+            for (fi, box), orig in zip(chunk_fitted, chunk_imgs):
                 single = torch_module.stack([transform(fi).to(device)], dim=0)
                 pred = _infer(single)
                 masks.append(_mask_from(pred[0], box, orig.size))
@@ -1268,13 +1278,20 @@ def birefnet_alpha_mask_batch(
                     torch_module.cuda.empty_cache()
                 except Exception:
                     pass
+            # 释放本批中间数据
+            del batch_tensor, tensors, chunk_fitted
+            if prediction is not None:
+                del prediction
         index += batch_size
+        gc.collect()
+        if progress_cb:
+            progress_cb(min(index, len(images)), len(images))
 
     info = {
         "model_key": normalized_model_key,
         "model_label": AI_MATTE_MODEL_LABELS[normalized_model_key],
         "repo_id": repo_id,
-        "device": device,
+        "device": str(device),
         "resolution": resolution,
         "batch_size": batch_size,
     }
@@ -1397,14 +1414,18 @@ def edge_decontaminate(image: Image.Image, radius: int = 2, strength: float = 1.
 _MATTE_PARALLEL_MIN = 6
 
 
-def _matte_progress_cb(on_progress):
+def _matte_progress_cb(on_progress, base=40, span=23):
     """把 run_parallel 的 (done,total) 进度映射到 on_progress(percent, message)。"""
     if not on_progress:
         return None
+    last_percent = -1
 
     def _cb(done, total):
-        percent = 40 + (done * 23 // max(1, total))
-        on_progress(percent, f"执行抠图流水线：{done}/{total} 帧")
+        nonlocal last_percent
+        percent = base + (done * span // max(1, total))
+        if percent != last_percent:
+            last_percent = percent
+            on_progress(percent, f"执行抠图流水线：{done}/{total} 帧")
 
     return _cb
 
@@ -1502,7 +1523,7 @@ def _parallel_chroma(raw_images, key_rgb, threshold, softness, despill_strength,
 
 
 def apply_matte_pipeline(
-    raw_images: list[Image.Image],
+    raw_images: list,
     chroma_enabled: bool,
     matte_mode: str,
     key_mode: str,
@@ -1529,14 +1550,24 @@ def apply_matte_pipeline(
     decontaminate_enabled: bool = True,
     decontaminate_radius: int = 2,
     decontaminate_strength: float = 1.0,
+    effect_protection_enabled: bool = False,
+    effect_protection_threshold: int = 200,
     pipeline: list[str] | None = None,
     on_progress: Callable[[int, str], None] | None = None,
 ) -> tuple[list[Image.Image], tuple[int, int, int], dict]:
     if not raw_images:
         raise ValueError("no frames to matte")
 
+    # 支持传入 Path 或 Image：统一解析逻辑，按需加载避免 OOM
+    def _resolve_image(item) -> Image.Image:
+        if isinstance(item, (str, Path)):
+            return open_rgba_image(item)
+        return item
+
+    first_image = _resolve_image(raw_images[0])
+
     mode = normalize_matte_mode(matte_mode, chroma_enabled)
-    key_rgb = auto_key_color(raw_images[0])
+    key_rgb = auto_key_color(first_image)
     if key_mode == "manual":
         key_rgb = parse_hex_color(manual_key_hex)
     normalized_luma_black = max(0, min(254, int(luma_black)))
@@ -1568,13 +1599,17 @@ def apply_matte_pipeline(
         "decontaminate_enabled": bool(decontaminate_enabled),
         "decontaminate_radius": max(1, min(8, int(decontaminate_radius))),
         "decontaminate_strength": max(0.0, min(1.0, float(decontaminate_strength))),
+        "effect_protection_enabled": bool(effect_protection_enabled),
+        "effect_protection_threshold": max(0, min(255, int(effect_protection_threshold))),
     }
     mode_uses_corridorkey = mode in {"corridorkey", "birefnet_corridorkey", "birefnet_luma_corridorkey"}
     use_corridorkey = bool((corridorkey_enabled or mode_uses_corridorkey) and mode != "none")
     resolved_corridorkey_screen = resolve_corridorkey_screen(corridorkey_screen, key_rgb)
 
     if mode == "none" and not pipeline:
-        return raw_images, key_rgb, matte_info
+        # 如果传入的是路径，需要加载为 Image
+        resolved_none = [_resolve_image(item) for item in raw_images]
+        return resolved_none, key_rgb, matte_info
 
     _dbg(f"apply_matte_pipeline 开始: mode={mode}, pipeline={pipeline}, 帧数={len(raw_images)}, on_progress={'有' if on_progress else '无'}")
 
@@ -1590,11 +1625,25 @@ def apply_matte_pipeline(
         # A: BiRefNet 批量推理——一次性算好所有帧的 AI alpha，替代逐帧前向
         birefnet_alpha_cache: list[Image.Image] | None = None
         if "birefnet" in pipeline:
+            _birefnet_last_percent = -1
+
+            def _birefnet_progress(done: int, total: int) -> None:
+                nonlocal _birefnet_last_percent
+                if on_progress:
+                    # span=57：BiRefNet 推理占 40%-97%，后处理占 97%-99%
+                    # 大 span 确保每批推理完都能产生新的 percent 值
+                    percent = min(97, 40 + (done * 57 // max(1, total)))
+                    if percent != _birefnet_last_percent:
+                        _birefnet_last_percent = percent
+                        on_progress(percent, f"BiRefNet 推理：{done}/{total} 帧")
+
             birefnet_alpha_cache, ai_info = birefnet_alpha_mask_batch(
-                raw_images, ai_model, ai_device, ai_resolution
+                raw_images, ai_model, ai_device, ai_resolution,
+                progress_cb=_birefnet_progress,
             )
 
-        for raw_index, raw_image in enumerate(raw_images):
+        for raw_index, raw_src in enumerate(raw_images):
+            raw_image = _resolve_image(raw_src)
             accumulated_alpha: Image.Image | None = None
             for step_index, step_mode in enumerate(pipeline):
                 step_alpha: Image.Image | None = None
@@ -1645,8 +1694,8 @@ def apply_matte_pipeline(
                 if on_progress:
                     done_units = (raw_index * len(pipeline)) + (step_index + 1)
                     total_units = max(1, len(raw_images) * len(pipeline))
-                    percent = 40 + (done_units * 23 // total_units)
-                    on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
+                    percent = min(99, 97 + (done_units * 2 // total_units))
+                    on_progress(percent, f"后处理：{raw_index + 1}/{len(raw_images)} 帧")
 
             # 应用 halo_pixels MinFilter
             if matte_info["halo_pixels"] > 0:
@@ -1675,7 +1724,8 @@ def apply_matte_pipeline(
         corridor_info: dict | None = None
         if use_corridorkey:
             keyed_frames = []
-            for raw_index, raw_image in enumerate(raw_images):
+            for raw_index, raw_src in enumerate(raw_images):
+                raw_image = _resolve_image(raw_src)
                 chroma_frame = chroma_key_frame(
                     image=raw_image,
                     key_rgb=key_rgb,
@@ -1709,7 +1759,8 @@ def apply_matte_pipeline(
     if mode == "spriteflow":
         _dbg(f"进入 spriteflow 分支: 帧数={len(raw_images)}")
         keyed_frames: list[Image.Image] = []
-        for raw_index, raw_image in enumerate(raw_images):
+        for raw_index, raw_src in enumerate(raw_images):
+            raw_image = _resolve_image(raw_src)
             if on_progress:
                 percent = 40 + ((raw_index + 1) * 23 // max(1, len(raw_images)))
                 on_progress(percent, f"执行抠图流水线：{raw_index + 1}/{len(raw_images)} 帧")
@@ -1747,7 +1798,8 @@ def apply_matte_pipeline(
 
     # 预计算每帧最终 alpha（halo 腐蚀 + 可选 luma 合并）
     final_alphas: list[Image.Image] = []
-    for raw_index, raw_image in enumerate(raw_images):
+    for raw_index, raw_src in enumerate(raw_images):
+        raw_image = _resolve_image(raw_src)
         ai_alpha = ai_alpha_list[raw_index]
         if matte_info["halo_pixels"] > 0:
             filter_size = (matte_info["halo_pixels"] * 2) + 1
@@ -1768,7 +1820,8 @@ def apply_matte_pipeline(
     if use_corridorkey:
         # corridorkey 依赖 GPU 模型、无法跨进程，保持串行
         keyed_frames = []
-        for raw_index, raw_image in enumerate(raw_images):
+        for raw_index, raw_src in enumerate(raw_images):
+            raw_image = _resolve_image(raw_src)
             keyed_frame, corridor_info = corridorkey_refine_frame(
                 raw_image,
                 final_alphas[raw_index],
@@ -1898,6 +1951,8 @@ def rematte_job_frames(
     decontaminate_enabled: bool = True,
     decontaminate_radius: int = 2,
     decontaminate_strength: float = 1.0,
+    effect_protection_enabled: bool = False,
+    effect_protection_threshold: int = 200,
     pipeline: list[str] | None = None,
 ) -> dict:
     manifest = load_job_manifest(job_id)
@@ -1919,10 +1974,10 @@ def rematte_job_frames(
     processed_dir.mkdir(parents=True, exist_ok=True)
     thumbs_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_images = [open_rgba_image(job_raw_frame_path(raw_dir, index)) for index in indices]
+    raw_paths = [job_raw_frame_path(raw_dir, index) for index in indices]
     try:
         keyed_frames, key_rgb, matte_info = apply_matte_pipeline(
-            raw_images=raw_images,
+            raw_images=raw_paths,
             chroma_enabled=chroma_enabled,
             matte_mode=matte_mode,
             key_mode=key_mode,
@@ -1949,8 +2004,14 @@ def rematte_job_frames(
             decontaminate_enabled=decontaminate_enabled,
             decontaminate_radius=decontaminate_radius,
             decontaminate_strength=decontaminate_strength,
+            effect_protection_enabled=effect_protection_enabled,
+            effect_protection_threshold=effect_protection_threshold,
             pipeline=pipeline,
         )
+
+        if effect_protection_enabled:
+            keyed_frames = [apply_effect_protection(f, effect_protection_threshold) for f in keyed_frames]
+
         rendered_frames, bboxes, scale, canvas_size = stable_resize_frames(
             keyed_frames,
             target_size,
@@ -1959,8 +2020,7 @@ def rematte_job_frames(
             hard_alpha=matte_info["mode"] == "chroma" and softness == 0 and not matte_info["corridorkey_enabled"],
         )
     finally:
-        for image in raw_images:
-            image.close()
+        pass
 
     revision = int(time.time() * 1000)
     postprocess_changed = {"green_to_black": 0, "semitransparent_to_black": 0, "semitransparent_to_opaque": 0}
@@ -2126,6 +2186,10 @@ def extract_raw_frames(
     start_time: float,
     end_time: float,
     keep_every: int,
+    crop_x: int = 0,
+    crop_y: int = 0,
+    crop_w: int = 0,
+    crop_h: int = 0,
 ) -> tuple[list[Path], dict]:
     ffmpeg = resolve_ffmpeg_binary("ffmpeg")
     if raw_dir.exists():
@@ -2144,8 +2208,13 @@ def extract_raw_frames(
             "-i",
             str(source_path),
         ]
+        filters: list[str] = []
+        if crop_w > 0 and crop_h > 0:
+            filters.append(f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}")
         if keep_every > 1:
-            args += ["-vf", f"select=not(mod(n\\,{keep_every}))"]
+            filters.append(f"select=not(mod(n\\,{keep_every}))")
+        if filters:
+            args += ["-vf", ",".join(filters)]
         args += ["-vsync", "0", str(raw_dir / "frame_%05d.png")]
         return args
 
@@ -2156,7 +2225,15 @@ def extract_raw_frames(
     return frames, accel
 
 
-def extract_single_frame(source_path: Path, output_path: Path, sample_time: float) -> tuple[Path, dict]:
+def extract_single_frame(
+    source_path: Path,
+    output_path: Path,
+    sample_time: float,
+    crop_x: int = 0,
+    crop_y: int = 0,
+    crop_w: int = 0,
+    crop_h: int = 0,
+) -> tuple[Path, dict]:
     ffmpeg = resolve_ffmpeg_binary("ffmpeg")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -2169,6 +2246,10 @@ def extract_single_frame(source_path: Path, output_path: Path, sample_time: floa
             f"{sample_time:.3f}",
             "-i",
             str(source_path),
+        ]
+        if crop_w > 0 and crop_h > 0:
+            args += ["-vf", f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}"]
+        args += [
             "-frames:v",
             "1",
             str(output_path),
@@ -2218,7 +2299,13 @@ def process_video_to_job(
     decontaminate_enabled: bool = True,
     decontaminate_radius: int = 2,
     decontaminate_strength: float = 1.0,
+    effect_protection_enabled: bool = False,
+    effect_protection_threshold: int = 200,
     pipeline: list[str] | None = None,
+    crop_x: int = 0,
+    crop_y: int = 0,
+    crop_w: int = 0,
+    crop_h: int = 0,
     task_id: str = "",
 ) -> dict:
     update_task_progress(task_id, 8, "读取素材信息。")
@@ -2250,14 +2337,14 @@ def process_video_to_job(
         raw_paths = [raw_path]
     else:
         update_task_progress(task_id, 18, "抽取视频帧。")
-        raw_paths, ffmpeg_accel = extract_raw_frames(source_path, raw_dir, start_time, end_time, max(1, keep_every))
+        raw_paths, ffmpeg_accel = extract_raw_frames(source_path, raw_dir, start_time, end_time, max(1, keep_every), crop_x, crop_y, crop_w, crop_h)
     update_task_progress(task_id, 28, f"已读取 {len(raw_paths)} 帧，准备抠图。")
-    raw_images = [open_rgba_image(path) for path in raw_paths]
+    # 不预加载所有帧到内存，传文件路径让 apply_matte_pipeline 按需加载，避免 OOM
 
-    update_task_progress(task_id, 40, "执行抠图流水线。")
-    _dbg(f"process_video_to_job: 调用 apply_matte_pipeline 前, 帧数={len(raw_images)}, task_id={task_id}")
+    update_task_progress(task_id, 39, "执行抠图流水线。")
+    _dbg(f"process_video_to_job: 调用 apply_matte_pipeline 前, 帧数={len(raw_paths)}, task_id={task_id}")
     keyed_frames, key_rgb, matte_info = apply_matte_pipeline(
-        raw_images=raw_images,
+        raw_images=raw_paths,
         chroma_enabled=chroma_enabled,
         matte_mode=matte_mode,
         key_mode=key_mode,
@@ -2284,12 +2371,17 @@ def process_video_to_job(
         decontaminate_enabled=decontaminate_enabled,
         decontaminate_radius=decontaminate_radius,
         decontaminate_strength=decontaminate_strength,
+        effect_protection_enabled=effect_protection_enabled,
+        effect_protection_threshold=effect_protection_threshold,
         pipeline=pipeline,
         on_progress=lambda percent, message: update_task_progress(task_id, percent, message),
     )
-    _dbg(f"process_video_to_job: apply_matte_pipeline 完成, 结果帧数={len(keyed_frames)}")
 
-    update_task_progress(task_id, 64, "稳定裁切并缩放帧。")
+    if effect_protection_enabled:
+        update_task_progress(task_id, 98, "应用特效保护。")
+        keyed_frames = [apply_effect_protection(f, effect_protection_threshold) for f in keyed_frames]
+
+    update_task_progress(task_id, 98, "稳定裁切并缩放帧。")
     rendered_frames, bboxes, scale, canvas_size = stable_resize_frames(
         keyed_frames,
         target_size,
@@ -2303,7 +2395,7 @@ def process_video_to_job(
         "semitransparent_to_black": 0,
         "semitransparent_to_opaque": 0,
     }
-    update_task_progress(task_id, 78, "保存处理帧与缩略图。")
+    update_task_progress(task_id, 98, "保存处理帧与缩略图。")
     total_frames = max(1, len(rendered_frames))
     for index, frame in enumerate(rendered_frames):
         frame_name = f"frame_{index + 1:03d}.png"
@@ -2335,10 +2427,10 @@ def process_video_to_job(
             }
         )
         if (index + 1) == total_frames or (index + 1) % 5 == 0:
-            progress = 78 + round(((index + 1) / total_frames) * 14)
-            update_task_progress(task_id, progress, f"已保存 {index + 1}/{total_frames} 帧。")
+            progress = 98 + round(((index + 1) / total_frames))
+            update_task_progress(task_id, min(99, progress), f"已保存 {index + 1}/{total_frames} 帧。")
 
-    update_task_progress(task_id, 94, "写入处理 manifest。")
+    update_task_progress(task_id, 99, "写入处理 manifest。")
     manifest = {
         "job_id": job_id,
         "upload_id": upload_id,
@@ -2379,8 +2471,40 @@ def process_video_to_job(
         "frames": frame_entries,
     }
     save_job_manifest(job_id, manifest)
-    update_task_progress(task_id, 98, f"处理完成，共 {len(frame_entries)} 帧。")
+    update_task_progress(task_id, 99, f"处理完成，共 {len(frame_entries)} 帧。")
     return manifest
+
+
+def apply_effect_protection(
+    image: Image.Image,
+    threshold: int = 200,
+) -> Image.Image:
+    """特效保护：将高于亮度阈值的半透明像素恢复为不透明。
+
+    在抠图流水线中，火焰、光效等特效的高亮像素容易被抠图算法误判为背景而变成半透明。
+    此函数检测这些高亮像素并将其 alpha 恢复到 255。
+    直接在原图的 alpha 通道上做 in-place 修改，避免复制整个 RGBA 数据。
+    """
+    alpha = image.getchannel("A")
+    threshold = max(0, min(255, int(threshold)))
+    # 只加载 RGB 和 A 两个通道，比 convert("RGBA") 省内存
+    r_ch = image.getchannel("R")
+    g_ch = image.getchannel("G")
+    b_ch = image.getchannel("B")
+    import numpy as np
+    r_arr = np.asarray(r_ch, dtype=np.uint8)
+    g_arr = np.asarray(g_ch, dtype=np.uint8)
+    b_arr = np.asarray(b_ch, dtype=np.uint8)
+    a_arr = np.asarray(alpha, dtype=np.uint8)
+    luma = (r_arr.astype(np.uint16) * 77 + g_arr.astype(np.uint16) * 150 + b_arr.astype(np.uint16) * 29) >> 8
+    mask = (a_arr < 255) & (luma >= threshold)
+    if np.any(mask):
+        a_arr[mask] = 255
+        result = image.copy()
+        result.putalpha(Image.fromarray(a_arr, mode="L"))
+        return result
+    return image
+    return result
 
 
 def green_to_black_image(
@@ -2575,7 +2699,13 @@ def preview_frame(
     decontaminate_enabled: bool = True,
     decontaminate_radius: int = 2,
     decontaminate_strength: float = 1.0,
+    effect_protection_enabled: bool = False,
+    effect_protection_threshold: int = 200,
     pipeline: list[str] | None = None,
+    crop_x: int = 0,
+    crop_y: int = 0,
+    crop_w: int = 0,
+    crop_h: int = 0,
 ) -> dict:
     _dbg(f"preview_frame: upload_id={upload_id}, sample_time={sample_time}")
     source_path, media_type = source_media_entry(upload_id)
@@ -2596,7 +2726,7 @@ def preview_frame(
     if media_type == "image":
         _, ffmpeg_accel = extract_image_frame(source_path, raw_path)
     else:
-        _, ffmpeg_accel = extract_single_frame(source_path, raw_path, sample_time)
+        _, ffmpeg_accel = extract_single_frame(source_path, raw_path, sample_time, crop_x, crop_y, crop_w, crop_h)
     raw_image = open_rgba_image(raw_path)
 
     raw_image.save(source_preview_path)
@@ -2629,8 +2759,14 @@ def preview_frame(
         decontaminate_enabled=decontaminate_enabled,
         decontaminate_radius=decontaminate_radius,
         decontaminate_strength=decontaminate_strength,
+        effect_protection_enabled=effect_protection_enabled,
+        effect_protection_threshold=effect_protection_threshold,
         pipeline=pipeline,
     )
+
+    if effect_protection_enabled:
+        keyed_frames = [apply_effect_protection(f, effect_protection_threshold) for f in keyed_frames]
+
     keyed_image = keyed_frames[0]
 
     rendered_frames, _, scale, canvas_size = stable_resize_frames(
@@ -3558,6 +3694,13 @@ class AppHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args) -> None:
         return
 
+    def handle_error(self, request, client_address) -> None:
+        """抑制客户端断开连接时的无害 socket 错误（WinError 10053 / ECONNRESET）。"""
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError)):
+            return
+        super().handle_error(request, client_address)
+
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -3678,6 +3821,12 @@ class AppHandler(BaseHTTPRequestHandler):
                     "decontaminate_enabled": bool(payload.get("decontaminate_enabled", True)),
                     "decontaminate_radius": max(1, min(8, safe_int(payload.get("decontaminate_radius"), 2))),
                     "decontaminate_strength": max(0.0, min(1.0, safe_float(payload.get("decontaminate_strength"), 1.0))),
+                    "effect_protection_enabled": bool(payload.get("effect_protection_enabled", False)),
+                    "effect_protection_threshold": max(0, min(255, safe_int(payload.get("effect_protection_threshold"), 200))),
+                    "crop_x": max(0, safe_int(payload.get("crop_x"), 0)),
+                    "crop_y": max(0, safe_int(payload.get("crop_y"), 0)),
+                    "crop_w": max(0, safe_int(payload.get("crop_w"), 0)),
+                    "crop_h": max(0, safe_int(payload.get("crop_h"), 0)),
                 }
                 if bool(payload.get("async", False)):
                     task = run_background_task("批量处理素材", process_video_to_job, **process_kwargs)
@@ -3724,6 +3873,8 @@ class AppHandler(BaseHTTPRequestHandler):
                     decontaminate_enabled=bool(payload.get("decontaminate_enabled", True)),
                     decontaminate_radius=max(1, min(8, safe_int(payload.get("decontaminate_radius"), 2))),
                     decontaminate_strength=max(0.0, min(1.0, safe_float(payload.get("decontaminate_strength"), 1.0))),
+                    effect_protection_enabled=bool(payload.get("effect_protection_enabled", False)),
+                    effect_protection_threshold=max(0, min(255, safe_int(payload.get("effect_protection_threshold"), 200))),
                 )
                 self.send_json({"ok": True, "job": result})
                 return
@@ -3765,6 +3916,12 @@ class AppHandler(BaseHTTPRequestHandler):
                     decontaminate_enabled=bool(payload.get("decontaminate_enabled", True)),
                     decontaminate_radius=max(1, min(8, safe_int(payload.get("decontaminate_radius"), 2))),
                     decontaminate_strength=max(0.0, min(1.0, safe_float(payload.get("decontaminate_strength"), 1.0))),
+                    effect_protection_enabled=bool(payload.get("effect_protection_enabled", False)),
+                    effect_protection_threshold=max(0, min(255, safe_int(payload.get("effect_protection_threshold"), 200))),
+                    crop_x=max(0, safe_int(payload.get("crop_x"), 0)),
+                    crop_y=max(0, safe_int(payload.get("crop_y"), 0)),
+                    crop_w=max(0, safe_int(payload.get("crop_w"), 0)),
+                    crop_h=max(0, safe_int(payload.get("crop_h"), 0)),
                 )
                 self.send_json({"ok": True, "preview": result})
                 return
@@ -3868,6 +4025,11 @@ def serve_once(host: str, port: int) -> None:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    except Exception as exc:
+        _dbg(f"FATAL: serve_once 未捕获异常: {exc}")
+        import traceback
+        _dbg(traceback.format_exc())
+        raise
     finally:
         server.server_close()
 
@@ -3887,10 +4049,16 @@ def run_with_reloader(host: str, port: int) -> None:
     ensure_runtime_dirs()
     watch_state = watch_snapshot()
     child: subprocess.Popen | None = None
+    crash_count = 0
     print(f"Sprite Video Lab reloader watching {len(watch_state)} files.")
     try:
         while True:
             if child is None or child.poll() is not None:
+                if child is not None and child.returncode not in (None, 0):
+                    crash_count += 1
+                    print(f"[reloader] child exited code={child.returncode} (crash #{crash_count})", file=sys.stderr, flush=True)
+                else:
+                    crash_count = 0
                 child = subprocess.Popen(
                     [
                         sys.executable,
@@ -3902,6 +4070,8 @@ def run_with_reloader(host: str, port: int) -> None:
                         str(port),
                     ],
                     cwd=str(ROOT_DIR),
+                    stdout=sys.stdout,
+                    stderr=sys.stderr,
                 )
             time.sleep(0.8)
             next_snapshot = watch_snapshot()

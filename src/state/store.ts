@@ -77,6 +77,12 @@ function createDefaultSettings(uploadId = ""): ProcessSettings {
     batch_green_to_black: false,
     batch_semitransparent_to_black: false,
     batch_semitransparent_to_opaque: false,
+    crop_x: 0,
+    crop_y: 0,
+    crop_w: 0,
+    crop_h: 0,
+    effect_protection_enabled: false,
+    effect_protection_threshold: 200,
   };
 }
 
@@ -469,7 +475,8 @@ export const useStore = create<Store>((set, get) => {
         const result = await previewFrame({ ...settings, sample_time: t });
         set({ preview: result.preview, operationProgress: 100, message: "单帧预览已生成。" });
       } catch (e) {
-        set({ operationProgress: 100, message: e instanceof Error ? e.message : String(e) });
+        const msg = e instanceof TypeError ? "Python 服务未响应，请稍后重试或重启服务。" : e instanceof Error ? e.message : String(e);
+        set({ operationProgress: 100, message: msg });
       } finally {
         set({ busy: false, operationLabel: "准备就绪" });
       }
@@ -530,6 +537,7 @@ export const useStore = create<Store>((set, get) => {
         if (e instanceof TaskCancelledError) msg = "批处理已取消。";
         else if (e instanceof TaskTimeoutError) msg = `批处理超时：${e.message}`;
         else if (e instanceof TaskStallError) msg = `批处理停滞：${e.message}（可重启 Python 服务后重试）`;
+        else if (e instanceof TypeError) msg = "Python 服务未响应，请稍后重试或重启服务。";
         else msg = e instanceof Error ? e.message : String(e);
         set({ operationProgress: 100, message: msg });
       } finally {

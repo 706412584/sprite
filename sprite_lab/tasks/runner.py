@@ -37,13 +37,17 @@ def update_task_progress(task_id: str, progress: int, message: str) -> None:
         task = TASKS.get(task_id)
         if not task or task.get("status") != "running":
             return
-        task["progress"] = clamp_int(progress, 0, 99)
+        clamped = clamp_int(progress, 0, 99)
+        old_progress = task.get("progress")
+        task["progress"] = clamped
         task["message"] = message
         logs = task.setdefault("logs", [])
         logs.append(f"[{datetime.now():%H:%M:%S}] {message}")
         if len(logs) > 200:
             del logs[:-200]
-        task["updated_at"] = iso_now()
+        # 只在进度真正变化时刷新 updated_at，让前端停滞检测正确工作
+        if clamped != old_progress:
+            task["updated_at"] = iso_now()
 
 
 def task_progress_payload(task_id: str) -> dict:

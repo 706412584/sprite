@@ -192,6 +192,16 @@ export function SettingsPanel({ title = "抠图模式与参数", showActions = t
           <input type="number" min="0" max="1" step="0.1" value={settings.decontaminate_strength}
             onChange={(e) => setSettings((c) => ({ ...c, decontaminate_strength: updateNumber(e.target.value, c.decontaminate_strength) }))} />
         </label>
+        <label>
+          特效保护
+          <input type="checkbox" checked={settings.effect_protection_enabled}
+            onChange={(e) => setSettings((c) => ({ ...c, effect_protection_enabled: e.target.checked }))} />
+        </label>
+        <label>
+          亮度阈值
+          <input type="number" min="0" max="255" value={settings.effect_protection_threshold}
+            onChange={(e) => setSettings((c) => ({ ...c, effect_protection_threshold: updateNumber(e.target.value, c.effect_protection_threshold) }))} />
+        </label>
       </div>
 
       {/* 高级参数 */}

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState, useAppActions } from "@/state/AppContext";
 import { RemoteImage, RemoteVideo, RemoteLink } from "@/components/media";
+import { VideoEditModal } from "./VideoEditModal";
 
 export function ImportPanel() {
   const { desktopApi, localPath, upload, sourcePreviewUrl, busy, selectedFile } = useAppState();
   const { setLocalPath, setSelectedFile, chooseVideo, registerPath, importAnimationFiles } = useAppActions();
   const [dragging, setDragging] = useState(false);
   const [localPreviewUrl, setLocalPreviewUrl] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
   const animationInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -108,7 +110,13 @@ export function ImportPanel() {
               <RemoteLink href={previewUrl}>打开原素材</RemoteLink>
             )}
           </div>
+          {upload && sourceIsVideo && (
+            <button onClick={() => setEditOpen(true)}>编辑视频</button>
+          )}
         </div>
+      )}
+      {editOpen && upload && sourceIsVideo && (
+        <VideoEditModal onClose={() => setEditOpen(false)} />
       )}
     </section>
   );
