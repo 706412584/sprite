@@ -98,6 +98,7 @@ function createDefaultExportCompression(): ExportCompressionSettings {
     webp_quality: 90,
     sheet_max_dimension: 0,
     sheet_target_kb: 0,
+    manifest_formats: [],
   };
 }
 

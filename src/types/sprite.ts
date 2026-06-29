@@ -116,6 +116,12 @@ export interface ExportInfo {
   video_duration_ms?: number;
   sheet_width?: number;
   sheet_height?: number;
+  phaser_hash_url?: string;
+  phaser_array_url?: string;
+  sparrow_xml_url?: string;
+  cocos_plist_url?: string;
+  godot_tres_url?: string;
+  sprite2d_xml_url?: string;
   [key: string]: unknown;
 }
 
@@ -130,6 +136,7 @@ export interface ExportCompressionSettings {
   webp_quality: number;
   sheet_max_dimension: number;
   sheet_target_kb: number;
+  manifest_formats: string[];
 }
 
 export interface SmartSelectResult {

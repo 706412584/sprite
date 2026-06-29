@@ -168,6 +168,34 @@ export function ExportPanel() {
         </label>
       </div>
 
+      <div className="settings-grid compact">
+        <fieldset className="manifest-formats">
+          <legend>游戏引擎格式（可多选）</legend>
+          {([
+            ["phaser_hash", "Phaser JSON Hash"],
+            ["phaser_array", "Phaser JSON Array"],
+            ["sparrow_xml", "Sparrow XML（TexturePacker / Godot）"],
+            ["cocos_plist", "Cocos Creator plist"],
+            ["godot_tres", "Godot SpriteFrames (.tres)"],
+            ["sprite2d_xml", "Urho3D Sprite2D XML"],
+          ] as const).map(([key, label]) => (
+            <label key={key} className="toggle-field">
+              <input
+                type="checkbox"
+                checked={exportCompression.manifest_formats.includes(key)}
+                onChange={(e) => setExportCompression((c) => ({
+                  ...c,
+                  manifest_formats: e.target.checked
+                    ? [...c.manifest_formats, key]
+                    : c.manifest_formats.filter((f) => f !== key),
+                }))}
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </fieldset>
+      </div>
+
       {/* 帧选择网格 */}
       {frames.length > 0 && (
         <div className="frame-grid-section">
@@ -239,6 +267,12 @@ export function ExportPanel() {
           {exportResult.zip_url && <RemoteLink href={exportResult.zip_url}>PNG zip</RemoteLink>}
           {exportResult.video_url && <RemoteLink href={exportResult.video_url}>Alpha MOV</RemoteLink>}
           {exportResult.manifest_url && <RemoteLink href={exportResult.manifest_url}>JSON manifest</RemoteLink>}
+          {exportResult.phaser_hash_url && <RemoteLink href={exportResult.phaser_hash_url}>Phaser Hash JSON</RemoteLink>}
+          {exportResult.phaser_array_url && <RemoteLink href={exportResult.phaser_array_url}>Phaser Array JSON</RemoteLink>}
+          {exportResult.sparrow_xml_url && <RemoteLink href={exportResult.sparrow_xml_url}>Sparrow XML</RemoteLink>}
+          {exportResult.cocos_plist_url && <RemoteLink href={exportResult.cocos_plist_url}>Cocos plist</RemoteLink>}
+          {exportResult.godot_tres_url && <RemoteLink href={exportResult.godot_tres_url}>Godot .tres</RemoteLink>}
+          {exportResult.sprite2d_xml_url && <RemoteLink href={exportResult.sprite2d_xml_url}>Urho3D Sprite2D</RemoteLink>}
         </div>
       )}
     </section>

@@ -30,3 +30,12 @@ public/_test_*.png
 sqlite_mcp_server.db
 tmp_backend_verify.log
 *.db
+
+# 临时构建/调试产物
+_pkg*_pack.log
+_pkg*_status.log
+vt.log
+*.devinbak
+birefnet_result.txt
+test_preview_api.py
+recording-*.mp4

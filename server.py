@@ -3093,6 +3093,13 @@ def save_alpha_mov(
         shutil.rmtree(video_frames_dir, ignore_errors=True)
 
 
+def _parse_manifest_formats(raw) -> list[str]:
+    from sprite_lab.export_formats import VALID_MANIFEST_FORMATS
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return [f for f in raw if isinstance(f, str) and f in VALID_MANIFEST_FORMATS]
+
+
 def normalize_export_compression(compression: dict | None) -> dict:
     compression = compression if isinstance(compression, dict) else {}
     sheet_format = str(compression.get("sheet_format") or "png").lower()
@@ -3110,6 +3117,8 @@ def normalize_export_compression(compression: dict | None) -> dict:
         # Sheet 尺寸/体积约束：0 表示不限制
         "sheet_max_dimension": clamp_int(safe_int(compression.get("sheet_max_dimension"), 0), 0, 16384),
         "sheet_target_kb": clamp_int(safe_int(compression.get("sheet_target_kb"), 0), 0, 200000),
+        # 标准游戏引擎 manifest 格式列表
+        "manifest_formats": _parse_manifest_formats(compression.get("manifest_formats")),
     }
 
 
@@ -3333,6 +3342,24 @@ def export_job(job_id: str, selected_indices: list[int], sheet_columns: int, vid
     manifest_path = target_dir / "export.json"
     if compression_settings["include_manifest"]:
         manifest_path.write_text(json.dumps(export_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # --- 标准游戏引擎 manifest 格式 ---
+    manifest_format_urls: dict[str, str] = {}
+    if compression_settings["manifest_formats"]:
+        from sprite_lab.export_formats import build_format_data, generate_manifest_files
+        _sheet_w = sheet_pixel_size[0] if sheet_pixel_size else unscaled_sheet_size[0]
+        _sheet_h = sheet_pixel_size[1] if sheet_pixel_size else unscaled_sheet_size[1]
+        _sheet_name = "sprite_sheet.png"
+        if sheet_path:
+            _sheet_name = sheet_path.name
+        elif webp_sheet_path:
+            _sheet_name = webp_sheet_path.name
+        _fps = 1000.0 / max(20, video_duration_ms) if video_duration_ms else 10.0
+        fmt_data = build_format_data(frame_positions, _sheet_w, _sheet_h, _sheet_name, _fps)
+        manifest_format_urls = generate_manifest_files(
+            compression_settings["manifest_formats"], fmt_data, target_dir,
+        )
+
     result = {
         "output_dir": str(target_dir),
         "frames_dir": str(frames_dir),
@@ -3346,6 +3373,7 @@ def export_job(job_id: str, selected_indices: list[int], sheet_columns: int, vid
         "sheet_width": sheet_pixel_size[0] if sheet_pixel_size else None,
         "sheet_height": sheet_pixel_size[1] if sheet_pixel_size else None,
     }
+    result.update(manifest_format_urls)
     return {key: value for key, value in result.items() if value is not None}
 
 
